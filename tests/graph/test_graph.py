@@ -1,5 +1,6 @@
 import math
 
+import networkx as nx
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
@@ -100,3 +101,29 @@ def test_month_end_is_declared_window_not_last_observed_date():
     tx["date"] = pd.Timestamp("2026-07-29")
     f, _ = compute_features(g, tx, a, period_end="2026-07-31")
     assert not f.month_end_window.any()
+
+
+def test_return_to_seed_and_four_hop_boundary_are_not_overcounted():
+    # A cycle returns to two different seeds; a second route reaches node 3.
+    g = nx.DiGraph()
+    g.add_nodes_from((i, {"is_seed": i in (1, 2)}) for i in range(1, 8))
+    g.add_edges_from([(1, 3), (2, 3), (3, 4), (4, 1), (4, 2),
+                      (1, 4), (4, 5), (5, 6), (6, 7)])
+    counts, paths = seed_reachability(g)
+    assert counts[1] == counts[2] == 1  # The other seed, never itself.
+    assert paths[1] == [[2, 3, 4, 1]]
+    assert paths[2] == [[1, 4, 2]]
+    assert counts[3] == 2  # Distinct origins, not the number of possible routes.
+    assert counts[6] == 2 and counts[7] == 1  # Second seed needs five hops to 7.
+    assert paths[7] == [[1, 4, 5, 6, 7]]
+    zero_counts, zero_paths = seed_reachability(g, max_hops=0)
+    assert not any(zero_counts.values()) and not any(zero_paths.values())
+
+
+def test_path_examples_cap_does_not_cap_seed_count():
+    g = nx.DiGraph()
+    g.add_nodes_from((i, {"is_seed": i < 5}) for i in range(1, 6))
+    g.add_edges_from((i, 5) for i in range(4, 0, -1))
+    counts, paths = seed_reachability(g)
+    assert counts[5] == 4
+    assert paths[5] == [[1, 5], [2, 5], [3, 5]]
