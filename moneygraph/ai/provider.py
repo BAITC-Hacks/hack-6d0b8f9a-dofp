@@ -49,14 +49,29 @@ class ChatCompletionsTransport:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise AIUnavailable("timeout")
-        # JSON mode has broad compatibility; backend validation remains mandatory.
-        body = json_bytes({"model": self.config.model, "stream": False,
+        body = json_bytes(self.request_body(system=system, payload=payload, schema=schema, max_tokens=max_tokens))
+        if len(body) > 120000:
+            raise AIUnavailable("request_too_large")
+        return self._post(endpoint, body, remaining, deadline)
+
+    def request_body(self, *, system, payload, schema, max_tokens):
+        """Build a request without networking; useful for protocol contract tests."""
+        request = {"model": self.config.model, "stream": False,
                            "max_tokens": max_tokens, "response_format": {"type": "json_object"},
                            "messages": [{"role": "system", "content": system},
                                         {"role": "user", "content": json_bytes(
-                                            {"data": payload, "response_schema": schema}).decode("utf-8")} ]})
-        if len(body) > 120000:
-            raise AIUnavailable("request_too_large")
+                                            {"data": payload, "response_schema": schema}).decode("utf-8")} ]}
+        if self.config.provider == "openai":
+            request.pop("max_tokens")
+            request["max_completion_tokens"] = max_tokens
+            request["store"] = False
+            request["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "aml_response", "strict": True, "schema": schema}}
+            if self.config.reasoning_effort is not None:
+                request["reasoning_effort"] = self.config.reasoning_effort
+        return request
+
+    def _post(self, endpoint, body, remaining, deadline):
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = "Bearer " + self.config.api_key
@@ -103,7 +118,9 @@ class ChatCompletionsTransport:
             raise AIUnavailable("timeout") from None
         except HTTPError as error:
             error.close()
-            raise AIUnavailable("rate_limited" if error.code == 429 else "provider_error") from None
+            code = {401: "authentication_failed", 403: "access_denied", 404: "model_or_endpoint_unavailable",
+                    429: "rate_limited"}.get(error.code, "provider_error")
+            raise AIUnavailable(code) from None
         except URLError as error:
             raise AIUnavailable("timeout" if isinstance(error.reason, TimeoutError) else "provider_unavailable") from None
         except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError, RecursionError):

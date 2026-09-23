@@ -39,6 +39,7 @@ class ExplanationService:
             raise AIUnavailable("request_too_large")
         key = (context.snapshot_id, context.client_id, context.digest,
                self.config.provider, endpoint, self.config.model, PROMPT_VERSION, REVIEW_VERSION,
+               self.config.reasoning_effort, self.config.max_output_tokens, self.config.review_max_tokens,
                sha256(SYSTEM_PROMPT.encode()).hexdigest(), sha256(REVIEW_PROMPT.encode()).hexdigest())
         now = time.monotonic()
         with self._lock:
@@ -83,7 +84,8 @@ class ExplanationService:
             explanation = validate_explanation(raw, context)
             review_raw = self._complete(system=REVIEW_PROMPT,
                                         payload={"facts": packet, "proposed_explanation": explanation.model_dump()},
-                                        schema=Review.model_json_schema(), deadline=deadline, max_tokens=600)
+                                        schema=Review.model_json_schema(), deadline=deadline,
+                                        max_tokens=self.config.review_max_tokens)
             review = Review.model_validate(strict_json(review_raw))
             if not review.supported or review.issues:
                 raise AIUnavailable("unsupported_claim")
