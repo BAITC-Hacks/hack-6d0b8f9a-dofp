@@ -1,6 +1,7 @@
 """Validate scoring on a prepared feature snapshot; never builds a graph.
 
 Input JSON: {"period_end": "YYYY-MM-DD", "features": [NodeFeatures records]}.
+Or features.parquet with explicit --period-end; pandas is then required.
 Run: PYTHONPATH=. python -B tests/scoring/validate_features.py features.json --sensitivity
 """
 import argparse
@@ -41,17 +42,60 @@ def sensitivity(features, period_end, baseline):
     return scenarios
 
 
+def compare_capped_role_support(scored):
+    """Audit only: replace role support with min(support, role_score), same weights.
+
+    No production score changes. Peripheral's fallback score 0.2 is not evidence
+    and must not become a new positive role contribution in this comparison.
+    """
+    baseline = sorted(scored, key=lambda n: (-n.priority_score, n.features.gid))
+    alternative = {}
+    for n in baseline:
+        capped = min(n.assignment.support, n.assignment.role_score)
+        alternative[n.features.gid] = sum(
+            0.25*capped if key == 'role_support' else value
+            for key, value in n.contributions.items())
+    changed = sorted(scored, key=lambda n: (-alternative[n.features.gid], n.features.gid))
+    original_ranks = {n.features.gid: rank for rank, n in enumerate(baseline, 1)}
+    changed_ranks = {n.features.gid: rank for rank, n in enumerate(changed, 1)}
+    top = baseline[:20]
+    changes = [abs(changed_ranks[n.features.gid]-original_ranks[n.features.gid]) for n in top]
+    reductions = [max(0.0, n.priority_score-alternative[n.features.gid]) for n in scored]
+    return {'variant': 'M=min(assignment.support, role_score); other contributions unchanged',
+            'top_size': len(top),
+            'top20_overlap': len({n.features.gid for n in top} & {n.features.gid for n in changed[:20]}),
+            'nodes_with_capped_support': sum(n.assignment.support > n.assignment.role_score for n in scored),
+            'top20_with_caps': sum(n.assignment.support > n.assignment.role_score for n in top),
+            'top20_depth_boundary': sum(n.features.depth_boundary for n in top),
+            'top20_rank_changes': sum(change > 0 for change in changes),
+            'top20_max_rank_shift': max(changes, default=0),
+            'max_priority_reduction': max(reductions, default=0),
+            'mean_priority_reduction': sum(reductions)/len(reductions) if reductions else 0}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('snapshot', type=Path)
     parser.add_argument('--sensitivity', action='store_true')
+    parser.add_argument('--compare-caps', action='store_true')
+    parser.add_argument('--period-end', type=date.fromisoformat, help='Required for a Parquet feature table')
     args = parser.parse_args()
-    payload = json.loads(args.snapshot.read_text(encoding='utf-8'))
-    period_end = date.fromisoformat(payload['period_end'])
+    if args.snapshot.suffix == '.parquet':
+        if args.period_end is None:
+            parser.error('--period-end is required for Parquet; do not infer the extraction window')
+        import pandas as pd
+        records = pd.read_parquet(args.snapshot).to_dict(orient='records')
+        period_end = args.period_end
+    else:
+        payload = json.loads(args.snapshot.read_text(encoding='utf-8'))
+        records = payload['features']
+        period_end = date.fromisoformat(payload['period_end'])
+        if args.period_end is not None and args.period_end != period_end:
+            parser.error('--period-end disagrees with the JSON snapshot')
     features = []
-    for record in payload['features']:
+    for record in records:
         row = dict(record)
-        if row.get('last_in_date') is not None:
+        if isinstance(row.get('last_in_date'), str):
             row['last_in_date'] = date.fromisoformat(row['last_in_date'])
         features.append(from_feature_record(row))
     start = perf_counter()
@@ -76,6 +120,8 @@ def main():
         report['sensitivity_note'] = ('One parameter at a time, +/-20%; integer cutoffs use ceil; '
                                       'bounded fractions clipped to 1. No-op variations skipped. '
                                       'Graph features are fixed. This is not a test of graph methods.')
+    if args.compare_caps:
+        report['caps_comparison'] = compare_capped_role_support(scored)
     print(json.dumps(report, ensure_ascii=False, allow_nan=False, indent=2))
 
 

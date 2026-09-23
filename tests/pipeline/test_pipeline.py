@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from moneygraph.config import PipelineConfig
+from moneygraph.analytics.roles import from_feature_record
 from moneygraph.io.exports import CLUSTER_COLUMNS, NODE_COLUMNS, TOP_COLUMNS, kzt
 from moneygraph.io.snapshots import ARTIFACTS, open_current, open_snapshot
 from moneygraph.pipeline import run_pipeline
@@ -166,6 +167,63 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(all(n["role"] == "peripheral" and float(n["priority_score"]) == 0 for n in nodes))
         self.assertEqual(len(pd.read_parquet(snapshot.artifact("transactions.parquet"))), 0)
         self.assertEqual(len(csv_rows(snapshot, "clusters.csv")[1]), 25)
+
+    def test_parquet_features_can_be_scored_again_without_losing_flags(self):
+        snapshot = run_pipeline(self.data, self.out)
+        rows = pd.read_parquet(snapshot.artifact("features.parquet")).to_dict(orient="records")
+        for row in rows:
+            node = from_feature_record(row)
+            self.assertEqual(node.observation_flags, tuple(row["observation_flags"]))
+        self.assertEqual({from_feature_record(r).gid for r in rows}, self.gids)
+
+    def test_semantically_wrong_exports_are_rejected_before_publication(self):
+        from moneygraph.io.exports import write_outputs
+        previous = run_pipeline(self.data, self.out)
+        for target in ("nodes_roles.csv", "clusters.csv", "top_nodes.csv", "features.parquet",
+                       "transactions.parquet", "graph.json", "explanations.jsonl", "quality.json", "counts",
+                       "timestamp", "float_count"):
+            with self.subTest(target=target):
+                def broken(directory, **kwargs):
+                    counts = write_outputs(directory, **kwargs)
+                    path = directory / target
+                    if target == "counts":
+                        counts["nodes"] -= 1
+                    elif target == "timestamp":
+                        path = directory / "transactions.parquet"
+                        table = pd.read_parquet(path)
+                        table.loc[0, "date"] += pd.Timedelta(hours=1)
+                        table.to_parquet(path, index=False)
+                    elif target == "float_count":
+                        path = directory / "graph.json"
+                        record = json.loads(path.read_text())
+                        record["edges"][0]["n_tx"] = float(record["edges"][0]["n_tx"])
+                        path.write_text(json.dumps(record))
+                    elif target.endswith(".parquet"):
+                        pd.read_parquet(path).iloc[:-1].to_parquet(path, index=False)
+                    elif target.endswith(".csv"):
+                        with path.open(newline="", encoding="utf-8") as stream:
+                            rows = list(csv.reader(stream))
+                        # Keep a complete CSV, but silently lose one valid row.
+                        with path.open("w", newline="", encoding="utf-8") as stream:
+                            csv.writer(stream).writerows(rows[:-1])
+                    elif target == "explanations.jsonl":
+                        lines = path.read_text().splitlines()
+                        record = json.loads(lines[0])
+                        record["priority_score"] = 1.0
+                        lines[0] = json.dumps(record)
+                        path.write_text("\n".join(lines)+"\n")
+                    else:
+                        record = json.loads(path.read_text())
+                        if target == "graph.json":
+                            record["edges"][0]["sum_minor"] = "1"
+                        else:
+                            record["total_minor"] = "0"
+                        path.write_text(json.dumps(record))
+                    return counts
+                with patch("moneygraph.pipeline.write_outputs", side_effect=broken):
+                    with self.assertRaisesRegex(ValueError, "Output reconciliation"):
+                        run_pipeline(self.data, self.out, config=replace(PipelineConfig(), seed=43))
+                self.assertEqual(open_current(self.out), previous)
 
 
 @unittest.skipUnless(os.environ.get("MONEYGRAPH_DATA_DIR"), "Local case data not supplied")

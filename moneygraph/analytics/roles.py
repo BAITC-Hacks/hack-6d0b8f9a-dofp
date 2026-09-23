@@ -106,6 +106,11 @@ def from_feature_record(record: Mapping[str, object]) -> NodeFeatures:
             raise ValueError("last_in_date must have calendar-day precision without timezone")
         values["last_in_date"] = value.date()
     if "observation_flags" in values:
+        # Arrow list columns become ndarray after a Parquet round trip. Normalize
+        # only this explicit field; keep scoring independent of numpy/pandas.
+        flags = values["observation_flags"]
+        if callable(getattr(flags, "tolist", None)):
+            values["observation_flags"] = flags.tolist()
         if not isinstance(values["observation_flags"], (list, tuple)):
             raise ValueError("observation_flags must be a list or tuple")
         values["observation_flags"] = tuple(values["observation_flags"])

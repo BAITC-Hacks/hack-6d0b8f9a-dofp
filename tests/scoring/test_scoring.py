@@ -216,7 +216,7 @@ class ScoringTests(unittest.TestCase):
             path.write_text(json.dumps(snapshot), encoding='utf-8')
             result = subprocess.run(
                 [sys.executable, '-B', str(Path(__file__).with_name('validate_features.py')),
-                 str(path), '--sensitivity'], cwd=root,
+                 str(path), '--sensitivity', '--compare-caps'], cwd=root,
                 env={**os.environ, 'PYTHONPATH': str(root)},
                 text=True, capture_output=True, check=False, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -224,6 +224,10 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(report['nodes'], 25)
         self.assertEqual(len(report['sensitivity']), 16)
         self.assertTrue(all(r['top20_overlap'] == 20 for r in report['sensitivity']))
+        caps = report['caps_comparison']
+        self.assertEqual(caps['top_size'], 20)
+        self.assertEqual(caps['top20_overlap'], 20)  # equal fixtures retain gid tie-breaking
+        self.assertGreaterEqual(caps['max_priority_reduction'], 0)
 
 
 if __name__ == '__main__':

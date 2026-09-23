@@ -8,6 +8,7 @@ from numbers import Integral, Real
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 from moneygraph.analytics.ranking import ScoredNode, top_records
 
@@ -22,6 +23,8 @@ def json_safe(value, key=""):
         return None
     if isinstance(value, dict):
         return {k: json_safe(v, k) for k, v in value.items()}
+    if isinstance(value, np.ndarray):
+        return json_safe(value.tolist(), key)
     if isinstance(value, (tuple, list)):
         child_key = "gid" if key in ("seed_paths", "top_gids", "gid") else ""
         return [json_safe(v, child_key) for v in value]
@@ -36,6 +39,8 @@ def json_safe(value, key=""):
             raise ValueError("Infinite metric cannot be serialized")
         return float(value)
     if isinstance(value, datetime):
+        if value.tzinfo is not None or any((value.hour, value.minute, value.second, value.microsecond)):
+            raise ValueError("Output reconciliation failed: dates must have calendar-day precision without timezone")
         return value.date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
@@ -54,17 +59,30 @@ def kzt(minor: int) -> str:
     return f"{minor // 100}.{minor % 100:02d}"
 
 
-def cluster_records(scored: list[ScoredNode], stats: pd.DataFrame) -> list[dict]:
+def cluster_records(scored: list[ScoredNode], stats: pd.DataFrame, graph) -> list[dict]:
     members = defaultdict(list)
     for node in scored:
         members[node.features.cluster_id].append(node)
     if stats.cluster_id.duplicated().any() or set(stats.cluster_id) != set(members):
         raise ValueError("Cluster statistics do not match assigned nodes")
+    membership = {n.features.gid: n.features.cluster_id for n in scored}
+    flows = {cid: {"internal": 0, "incoming": 0, "outgoing": 0} for cid in members}
+    for src, dst, attrs in graph.edges(data=True):
+        source, target = membership[src], membership[dst]
+        amount = int(attrs["sum_minor"])
+        if source == target:
+            flows[source]["internal"] += amount
+        else:
+            flows[source]["outgoing"] += amount
+            flows[target]["incoming"] += amount
     result = []
     for row in stats.sort_values("cluster_id").itertuples(index=False):
         group = members[row.cluster_id]
         if row.n_nodes != len(group) or row.n_seed != sum(n.features.is_seed for n in group):
             raise ValueError("Cluster membership counts disagree")
+        flow = flows[row.cluster_id]
+        if row.sum_minor_internal != flow["internal"]:
+            raise ValueError("Cluster internal money disagrees with directed edges")
         counts = Counter(n.assignment.role for n in group)
         composition = ", ".join(f"{role}={count}" for role, count in sorted(counts.items()))
         boundary = sum(n.features.depth_boundary for n in group)
@@ -80,12 +98,15 @@ def cluster_records(scored: list[ScoredNode], stats: pd.DataFrame) -> list[dict]
         elif counts["transit"]:
             purpose = "Гипотеза: передача средств между участниками"
         else:
-            purpose = "Назначение сообщества не установлено"
+            purpose = "Недостаточно признаков для гипотезы о назначении сообщества"
+        leaders = ", ".join(f"{n.features.gid} ({n.assignment.role}, {n.priority_score:.3f})" for n in top[:3])
         result.append({"cluster_id": int(row.cluster_id), "n_nodes": len(group),
                        "n_seed": int(row.n_seed), "sum_kzt_internal": kzt(int(row.sum_minor_internal)),
                        "top_gids": json.dumps([str(n.features.gid) for n in top]),
                        "hypothesis": (f"{purpose}. {composition}; seed={row.n_seed}; "
                                       f"граница={boundary}; внутренний оборот={kzt(int(row.sum_minor_internal))} KZT. "
+                                      f"Межкластерный вход={kzt(flow['incoming'])} KZT; "
+                                      f"выход={kzt(flow['outgoing'])} KZT. Лидеры: {leaders}. "
                                       "Структурное сообщество, не доказательство связи вне переводов.")})
     return result
 
@@ -111,7 +132,7 @@ def write_outputs(directory: Path, *, data, features, graph, clusters,
         for key in ("role_score", "priority_score"):
             if not math.isfinite(row[key]) or not 0 <= row[key] <= 1:
                 raise ValueError(f"Invalid {key}")
-    groups = cluster_records(scored, clusters)
+    groups = cluster_records(scored, clusters, graph)
     top = top_records(scored, limit=top_limit)
     write_csv(directory / "nodes_roles.csv", NODE_COLUMNS, roles)
     write_csv(directory / "clusters.csv", CLUSTER_COLUMNS, groups)
@@ -132,3 +153,50 @@ def write_outputs(directory: Path, *, data, features, graph, clusters,
     write_json(directory / "quality.json", data.quality)
     return {"nodes": len(roles), "clusters": len(groups), "top_nodes": len(top),
             "edges": len(edges), "transactions": len(data.transactions)}
+
+
+def validate_outputs(directory: Path, *, data, features, graph, clusters,
+                     scored: list[ScoredNode], top_limit: int, counts: dict) -> None:
+    """Read every artifact back before publication, comparing to validated inputs.
+
+    Checksums alone detect byte corruption, not a validly written wrong value.
+    This boundary also catches dropped columns, rows, directions or explanations.
+    """
+    def require(condition, message):
+        if not condition:
+            raise ValueError(f"Output reconciliation failed: {message}")
+
+    def same_json(actual, expected):
+        # Python considers True == 1 and 1.0 == 1; the wire contract does not.
+        return json.dumps(actual, sort_keys=True, allow_nan=False) == json.dumps(expected, sort_keys=True, allow_nan=False)
+
+    def check_csv(name, columns, expected):
+        with (directory / name).open(encoding="utf-8", newline="") as stream:
+            reader = csv.DictReader(stream)
+            rows = list(reader)
+            require(tuple(reader.fieldnames or ()) == columns, f"{name} columns")
+        require(rows == [{key: str(row[key]) for key in columns} for row in expected], name)
+
+    node_rows = [n.csv_record() for n in scored]
+    check_csv("nodes_roles.csv", NODE_COLUMNS, node_rows)
+    check_csv("top_nodes.csv", TOP_COLUMNS, top_records(scored, limit=top_limit))
+    check_csv("clusters.csv", CLUSTER_COLUMNS, cluster_records(scored, clusters, graph))
+    for name, source in (("features", features), ("transactions", data.transactions)):
+        restored = pd.read_parquet(directory / f"{name}.parquet")
+        require(list(restored.columns) == list(source.columns), f"{name} columns")
+        require(same_json(json_safe(restored.to_dict(orient="records")), json_safe(source.to_dict(orient="records"))),
+                f"{name} records")
+    graph_json = json.loads((directory / "graph.json").read_text(encoding="utf-8"))
+    expected_edges = [{"src": int(r.src), "dst": int(r.dst), "sum_minor": int(r.sum_minor),
+                       "n_tx": int(r.n_tx), "depth": int(r.depth)} for r in data.edges.itertuples(index=False)]
+    require(graph_json["directed"] is True and graph_json["currency"] == "KZT" and graph_json["scale"] == 2,
+            "graph units and direction")
+    require(same_json(graph_json["edges"], json_safe(expected_edges)), "graph edges vs validated transactions/amounts/counts")
+    by_gid = {row["gid"]: row for row in node_rows}
+    expected_nodes = [{**r, **by_gid[r["gid"]]} for r in features.to_dict(orient="records")]
+    require(same_json(graph_json["nodes"], json_safe(expected_nodes)), "graph nodes vs features/roles")
+    explanations = [json.loads(line) for line in (directory / "explanations.jsonl").read_text(encoding="utf-8").splitlines()]
+    require(same_json(explanations, json_safe([n.explanation_record() for n in scored])), "explanations")
+    require(same_json(json.loads((directory / "quality.json").read_text(encoding="utf-8")), json_safe(data.quality)), "quality")
+    require(counts == {"nodes": len(data.nodes), "edges": len(data.edges), "transactions": len(data.transactions),
+                       "clusters": len(clusters), "top_nodes": min(top_limit, len(data.nodes))}, "manifest counts")

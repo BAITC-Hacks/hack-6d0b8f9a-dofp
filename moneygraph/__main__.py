@@ -19,7 +19,21 @@ def main(argv=None) -> int:
     run.add_argument("--resolution", type=float, default=1.0)
     run.add_argument("--seed", type=int, default=42)
     run.add_argument("--top-limit", type=int, default=30)
+    run.add_argument("--serve", action="store_true", help="Serve the published snapshot using role C's API/UI")
+    run.add_argument("--port", type=int, default=8000)
+    run.add_argument("--static-dir", type=Path, help="Optional path to role C's frontend/dist")
     args = parser.parse_args(argv)
+    if not 1 <= args.port <= 65535:
+        parser.error("--port must be between 1 and 65535")
+    if args.serve:
+        try:
+            from moneygraph.api import create_app
+            import uvicorn
+        except ImportError as error:
+            print(f"Cannot enable --serve: {error}. Install '.[serve]' and include the published "
+                  "codex/api-ui checkout on PYTHONPATH (or use the team's integrated checkout).",
+                  file=sys.stderr)
+            return 2
     started = perf_counter()
     try:
         from .pipeline import run_pipeline
@@ -32,6 +46,16 @@ def main(argv=None) -> int:
     print(f"run_id: {snapshot.run_id}")
     print(f"Results: {snapshot.directory}")
     print(f"Elapsed: {perf_counter()-started:.3f} s")
+    if args.serve:
+        try:
+            from .io.snapshots import open_snapshot
+            verified = open_snapshot(snapshot.directory)
+            app = create_app(verified.directory, static_dir=args.static_dir)
+        except (OSError, ValueError, KeyError, ImportError) as error:
+            print(f"Snapshot saved, but API startup failed: {error}", file=sys.stderr)
+            return 2
+        print(f"Open http://127.0.0.1:{args.port}", flush=True)
+        uvicorn.run(app, host="127.0.0.1", port=args.port)
     return 0
 
 

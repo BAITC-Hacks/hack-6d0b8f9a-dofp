@@ -11,7 +11,7 @@ from .analytics.graph import build_graph
 from .analytics.ranking import score_nodes
 from .analytics.roles import RULES_VERSION, from_feature_record
 from .config import PipelineConfig
-from .io.exports import json_safe, write_outputs
+from .io.exports import json_safe, validate_outputs, write_outputs
 from .io.load import load_dataset
 from .io.snapshots import AnalysisSnapshot, SCHEMA_VERSION, publish_snapshot
 
@@ -51,10 +51,16 @@ def run_pipeline(data_dir: Path, out_dir: Path, *, config: PipelineConfig = Pipe
     def write(directory: Path) -> dict:
         counts = write_outputs(directory, data=data, features=features, graph=graph,
                                clusters=clusters, scored=scored, top_limit=config.top_limit)
-        return {"counts": counts, "currency": "KZT", "scale": 2,
+        exported = perf_counter()
+        validate_outputs(directory, data=data, features=features, graph=graph, clusters=clusters,
+                         scored=scored, top_limit=config.top_limit, counts=counts)
+        return {"counts": counts, "currency": "KZT", "scale": 2, "demo": False,
+                "rules_version": RULES_VERSION,
+                "period": {"start": config.period_start.isoformat(), "end": config.period_end.isoformat()},
                 "graph_metadata": json_safe({"communities": community_meta, "features": feature_meta}),
                 "warnings": data.quality["warnings"],
                 "timings_seconds": {"load_validate": loaded-start, "graph_features": featured-loaded,
-                                    "scoring": scored_at-featured, "through_exports": perf_counter()-start}}
+                                    "scoring": scored_at-featured, "through_exports": exported-start,
+                                    "output_validation": perf_counter()-exported}}
 
     return publish_snapshot(out_dir, identity, write)
