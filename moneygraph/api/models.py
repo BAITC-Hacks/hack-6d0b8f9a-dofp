@@ -1,6 +1,6 @@
 """API-owned view models; core contracts can be adapted via model_dump/asdict."""
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime
 from numbers import Integral
 import re
 from typing import Any, Literal
@@ -9,6 +9,24 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Role = Literal['consolidator', 'transit', 'distributor', 'terminal', 'coordinator', 'peripheral']
 ROLES = ('consolidator', 'transit', 'distributor', 'terminal', 'coordinator', 'peripheral')
+
+
+def exact_integer(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, (Integral, str)) or not re.fullmatch(r'-?\d+', str(value)):
+        raise ValueError('Expected an exact integer, not a float or boolean')
+    return int(value)
+
+
+def calendar_date(value: Any) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is not None or any((value.hour, value.minute, value.second, value.microsecond, getattr(value, 'nanosecond', 0))):
+            raise ValueError('Transaction date must have calendar-day precision')
+        value = value.date()
+    if isinstance(value, date):
+        return value.isoformat()
+    if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+        raise ValueError('Transaction date must be YYYY-MM-DD')
+    return date.fromisoformat(value).isoformat()
 
 
 def gid_string(value: Any) -> str:
@@ -41,7 +59,7 @@ class Node(BaseModel):
     priority_score: float = Field(ge=0, le=1)
     cluster_id: int = Field(ge=0)
     evidence: str = Field(min_length=1, max_length=200)
-    depth: int | None = Field(default=None, ge=0)
+    depth: int | None = Field(default=None, ge=0, le=4)
     is_seed: bool = False
     metrics: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
@@ -50,6 +68,11 @@ class Node(BaseModel):
     rule_id: str | None = None
     alternatives: list[dict[str, Any]] = Field(default_factory=list)
     rule_details: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator('cluster_id', 'depth', mode='before')
+    @classmethod
+    def exact_count(cls, v: Any) -> Any:
+        return None if v is None else exact_integer(v)
 
     @field_validator('gid', mode='before')
     @classmethod
@@ -73,8 +96,13 @@ class Edge(BaseModel):
     model_config = ConfigDict(extra='ignore')
     src: str
     dst: str
-    sum_minor: str = Field(pattern=r'^\d+$')
+    sum_minor: str = Field(pattern=r'^0*[1-9]\d*$')
     n_tx: int = Field(ge=1)
+
+    @field_validator('n_tx', mode='before')
+    @classmethod
+    def exact_count(cls, v: Any) -> int:
+        return exact_integer(v)
 
     @field_validator('src', 'dst', mode='before')
     @classmethod
@@ -92,7 +120,7 @@ class Transaction(BaseModel):
     src: str
     dst: str
     date: str
-    sum_minor: str = Field(pattern=r'^\d+$')
+    sum_minor: str = Field(pattern=r'^0*[1-9]\d*$')
     tx_ref: str
 
     @field_validator('src', 'dst', mode='before')
@@ -100,7 +128,7 @@ class Transaction(BaseModel):
     def normalize_gid(cls, v: Any) -> str:
         return gid_string(v)
 
-    @field_validator('date')
+    @field_validator('date', mode='before')
     @classmethod
     def valid_date(cls, v: str) -> str:
-        return date.fromisoformat(v).isoformat()
+        return calendar_date(v)

@@ -107,7 +107,15 @@ export const roleInfo: Record<
   peripheral: { label: "Периферия", short: "Периферия", color: "#94a6a0" },
 };
 export const warningLabels: Record<string, string> = {
-  depth_boundary: "Колено 4: дальнейшие переводы не наблюдаются.",
+  depth_boundary: "Колено 4: дальнейшие переводы видны не полностью.",
+  partial_network: "Выборка отражает только часть финансовой сети.",
+  intrabank_only: "В выборке представлены только внутрибанковские переводы.",
+  outgoing_sample:
+    "Сеть собрана обходом исходящих переводов от исходных узлов.",
+  self_transfer:
+    "Есть перевод узла самому себе; он не считается отдельным контрагентом.",
+  incoming_date_unavailable: "Дата последнего входящего перевода недоступна.",
+  active_in_days_unavailable: "Число дней с входящими переводами недоступно.",
   seed_inflow_incomplete:
     "Входящие переводы исходного узла видны не полностью.",
   isolated: "В выгрузке нет связей этого узла.",

@@ -11,7 +11,8 @@ from pathlib import Path
 import re
 from typing import Any, Mapping
 
-from .models import Edge, Node, Transaction, gid_string, minor_units
+from .models import Edge, Node, Transaction, gid_string, minor_units, exact_integer
+from .snapshot import SCHEMA, read_snapshot
 
 EXPORT_COLUMNS = {
     'nodes_roles.csv': ['gid', 'role', 'role_score', 'cluster_id', 'priority_score', 'evidence'],
@@ -95,25 +96,33 @@ def load_directory(path: Path, data_dir: Path | None = None) -> dict:
     manifest_file = path / 'manifest.json'
     if not manifest_file.exists():
         raise ValueError('Snapshot requires manifest.json; pass a completed run directory')
-    result = {'manifest': json.loads(manifest_file.read_text(encoding='utf-8-sig'))}
+    manifest, blobs = read_snapshot(path)
+    def text_file(name):
+        return blobs[name].decode('utf-8-sig')
+    def csv_file(name):
+        return list(csv.DictReader(io.StringIO(text_file(name), newline='')))
+    def parquet_file(name):
+        import pandas as pd
+        return pd.read_parquet(io.BytesIO(blobs[name])).to_dict('records')
+    result = {'manifest': manifest}
     for filename in EXPORT_COLUMNS:
-        if not (path / filename).is_file():
+        if filename not in blobs:
             raise ValueError(f'Incomplete snapshot: missing {filename}')
-    result['nodes'] = read_csv(path / 'nodes_roles.csv')
-    result['clusters'] = read_csv(path / 'clusters.csv')
-    result['top_nodes'] = read_csv(path / 'top_nodes.csv')
+    result['nodes'] = csv_file('nodes_roles.csv')
+    result['clusters'] = csv_file('clusters.csv')
+    result['top_nodes'] = csv_file('top_nodes.csv')
     features = {}
-    if (path / 'features.parquet').exists():
-        features = {gid_string(row['gid']): row for row in read_parquet(path / 'features.parquet')}
-    if (path / 'explanations.jsonl').exists():
-        for line in (path / 'explanations.jsonl').read_text(encoding='utf-8-sig').splitlines():
+    if 'features.parquet' in blobs:
+        features = {gid_string(row['gid']): row for row in parquet_file('features.parquet')}
+    if 'explanations.jsonl' in blobs:
+        for line in text_file('explanations.jsonl').splitlines():
             if line.strip():
                 row = normalize_node_record(json.loads(line))
                 features.setdefault(gid_string(row['gid']), {}).update(row)
     result['nodes'] = [{**features.get(gid_string(row['gid']), {}), **row} for row in result['nodes']]
     graph_path = path / 'graph.json'
-    if graph_path.exists():
-        graph = json.loads(graph_path.read_text(encoding='utf-8-sig'))
+    if 'graph.json' in blobs:
+        graph = json.loads(text_file('graph.json'))
         graph = graph.get('elements', graph)
         result['edges'] = graph.get('edges', graph.get('links', []))
         graph_nodes = {gid_string(row.get('data', row).get('gid', row.get('data', row).get('id'))): row.get('data', row) for row in graph.get('nodes', [])}
@@ -123,22 +132,26 @@ def load_directory(path: Path, data_dir: Path | None = None) -> dict:
     else:
         raise ValueError('Snapshot requires graph.json or --data containing edges.parquet')
     for base in (path, data_dir):
-        if base and (base / 'transactions.parquet').exists():
-            result['transactions'] = read_parquet(base / 'transactions.parquet')
+        if base and ('transactions.parquet' in blobs if base == path else (base / 'transactions.parquet').exists()):
+            result['transactions'] = parquet_file('transactions.parquet') if base == path else read_parquet(base / 'transactions.parquet')
             break
     if data_dir and (data_dir / 'nodes.parquet').exists():
         raw = {gid_string(row['gid']): row for row in read_parquet(data_dir / 'nodes.parquet')}
         result['nodes'] = [{**raw.get(gid_string(row['gid']), {}), **row} for row in result['nodes']]
-    if (path / 'quality.json').exists():
-        result['quality'] = json.loads((path / 'quality.json').read_text(encoding='utf-8-sig'))
+    if 'quality.json' in blobs:
+        result['quality'] = json.loads(text_file('quality.json'))
     # Freeze source exports at startup; later file changes cannot mix runs.
-    result['_export_bytes'] = {name: (path / name).read_bytes() for name in EXPORT_COLUMNS}
+    result['_export_bytes'] = {name: blobs[name] for name in EXPORT_COLUMNS}
     return result
 
 
 class QueryService:
     def __init__(self, snapshot: Mapping | str | Path | Any, data_dir: Path | None = None):
-        if isinstance(snapshot, (str, Path)):
+        locator_run = None
+        if is_dataclass(snapshot) and hasattr(snapshot, 'directory') and hasattr(snapshot, 'run_id'):
+            locator_run = snapshot.run_id
+            payload = load_directory(Path(snapshot.directory), data_dir)
+        elif isinstance(snapshot, (str, Path)):
             payload = load_directory(Path(snapshot), data_dir)
         elif hasattr(snapshot, 'model_dump'):
             payload = snapshot.model_dump(mode='python')
@@ -148,11 +161,17 @@ class QueryService:
             payload = deepcopy(dict(snapshot))
         self.manifest = dict(payload.get('manifest', {}))
         self.run_id = self.manifest.get('run_id')
+        if locator_run is not None and locator_run != self.run_id:
+            raise ValueError('Snapshot locator and manifest disagree')
         if not isinstance(self.run_id, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', self.run_id):
             raise ValueError('manifest.run_id must be a nonempty URL-safe string')
         self.schema_version = str(self.manifest.get('schema_version', '1.0'))
-        if self.schema_version.split('.')[0] != '1':
+        if self.schema_version != SCHEMA and self.schema_version.split('.')[0] != '1':
             raise ValueError(f'Unsupported snapshot schema_version: {self.schema_version}')
+        if self.schema_version == SCHEMA:
+            config = self.manifest.get('identity', {}).get('config', {})
+            self.manifest.setdefault('period', {'start': config.get('period_start'), 'end': config.get('period_end')})
+            self.manifest.setdefault('demo', False)
         self.warnings = list(self.manifest.get('warnings', []))
         self.quality = payload.get('quality', {})
         self.nodes: dict[str, Node] = {}
@@ -201,17 +220,20 @@ class QueryService:
         cluster_ids = set()
         for original in payload.get('clusters', []):
             row = dict(original)
-            cid = int(row['cluster_id'])
+            cid = exact_integer(row['cluster_id'])
             if cid in cluster_ids:
                 raise ValueError('Duplicate cluster_id')
             cluster_ids.add(cid)
             row['cluster_id'] = cid
-            row['n_nodes'], row['n_seed'] = int(row['n_nodes']), int(row['n_seed'])
+            row['n_nodes'], row['n_seed'] = exact_integer(row['n_nodes']), exact_integer(row['n_seed'])
             if not str(row.get('hypothesis', '')).strip():
                 raise ValueError('Cluster hypothesis is required')
             if 'sum_minor_internal' not in row:
                 row['sum_minor_internal'] = minor_units(row['sum_kzt_internal'])
-            row['sum_minor_internal'] = str(row['sum_minor_internal'])
+            internal = exact_integer(row['sum_minor_internal'])
+            if internal < 0:
+                raise ValueError('Cluster money must be nonnegative')
+            row['sum_minor_internal'] = str(internal)
             if 'sum_kzt_internal' not in row:
                 row['sum_kzt_internal'] = str(Decimal(row['sum_minor_internal']) / 100)
             top = row.get('top_gids', [])
@@ -232,20 +254,35 @@ class QueryService:
         self.clusters.sort(key=lambda row: row['cluster_id'])
         self.transactions_available = 'transactions' in payload
         self.transactions: dict[str, list[dict]] = defaultdict(list)
+        tx_totals = defaultdict(lambda: [0, 0])
         for index, original in enumerate(payload.get('transactions', [])):
             row = dict(original)
-            row['date'] = str(row['date'])[:10]
             row['sum_minor'] = str(row['sum_minor']) if 'sum_minor' in row else minor_units(row['sum_kzt'])
             row['tx_ref'] = str(row.get('tx_ref', index))
             tx = Transaction.model_validate(row).model_dump()
             if tx['src'] not in self.nodes or tx['dst'] not in self.nodes:
                 raise ValueError('Transaction endpoint missing from nodes')
+            totals = tx_totals[(tx['src'], tx['dst'])]
+            totals[0] += int(tx['sum_minor'])
+            totals[1] += 1
             for gid in {tx['src'], tx['dst']}:
                 self.transactions[gid].append(tx)
         for rows in self.transactions.values():
             rows.sort(key=lambda row: (row['date'], row['tx_ref']), reverse=True)
         if not self.transactions_available:
             self.warnings.append('transactions_not_loaded')
+        if self.schema_version == SCHEMA:
+            internal = defaultdict(int)
+            expected_tx = {}
+            for edge in self.edges:
+                src_cluster = self.nodes[edge.src].cluster_id
+                if src_cluster == self.nodes[edge.dst].cluster_id:
+                    internal[src_cluster] += int(edge.sum_minor)
+                expected_tx[(edge.src, edge.dst)] = [int(edge.sum_minor), edge.n_tx]
+            if not self.transactions_available or dict(tx_totals) != expected_tx:
+                raise ValueError('Snapshot transactions do not reconcile with edges')
+            if any(int(row['sum_minor_internal']) != internal[row['cluster_id']] for row in self.clusters):
+                raise ValueError('Snapshot cluster amounts do not reconcile with edges')
         self.top_rows = payload.get('top_nodes')
         if self.top_rows is None:
             self.top_rows = [{'rank': self.rank[node.gid], **node.model_dump(), 'why': node.evidence} for node in self.ranked[:30]]
@@ -262,7 +299,7 @@ class QueryService:
         for index, row in enumerate(self.top_rows):
             gid = gid_string(row['gid'])
             node = self.nodes.get(gid)
-            if gid in seen or node is None or int(row['rank']) != index + 1:
+            if gid in seen or node is None or exact_integer(row['rank']) != index + 1:
                 raise ValueError('Invalid top_nodes ranks or gids')
             score = float(row['priority_score'])
             if score != node.priority_score or row['role'] != node.role or score > previous or not str(row['why']).strip():
