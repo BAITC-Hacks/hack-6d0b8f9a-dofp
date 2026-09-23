@@ -1,5 +1,11 @@
 import type { Envelope } from "./types";
 
+export class ApiError extends Error {
+  constructor(message: string, public code?: string) {
+    super(message);
+  }
+}
+
 export async function request<T>(
   path: string,
   signal?: AbortSignal,
@@ -10,15 +16,17 @@ export async function request<T>(
   });
   if (!response.ok) {
     let message = `Ошибка сервера (${response.status})`;
+    let code: string | undefined;
     try {
       const body = await response.json();
+      code = body.detail?.code;
       message =
         body.detail?.message ||
         (typeof body.detail === "string" ? body.detail : message);
     } catch {
       /* retain HTTP status */
     }
-    throw new Error(message);
+    throw new ApiError(message, code);
   }
   if (!response.headers.get("content-type")?.includes("application/json"))
     throw new Error(

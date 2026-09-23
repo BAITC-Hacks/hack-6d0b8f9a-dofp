@@ -12,6 +12,7 @@ export interface NodeData {
   priority_score: number;
   cluster_id: number;
   evidence: string;
+  explanation?: string;
   depth: number | null;
   is_seed: boolean;
   rank: number;
@@ -49,6 +50,11 @@ export interface Cluster {
   sum_minor_internal: string;
   top_gids: string[];
   hypothesis: string;
+  description: string;
+  zero_explanation: string;
+  incoming_minor: string;
+  outgoing_minor: string;
+  n_operations: number;
 }
 export interface Summary {
   run_id: string;
@@ -90,38 +96,46 @@ export const roleInfo: Record<
   Role,
   { label: string; short: string; color: string }
 > = {
-  coordinator: { label: "Координатор", short: "Координатор", color: "#d08a30" },
+  coordinator: {
+    label: "Связующий участник",
+    short: "Связующий",
+    color: "#d08a30",
+  },
   consolidator: {
-    label: "Консолидация",
-    short: "Консолидация",
+    label: "Сбор денег",
+    short: "Сбор денег",
     color: "#168b6b",
   },
-  transit: { label: "Транзит", short: "Транзит", color: "#7185c7" },
+  transit: { label: "Передача дальше", short: "Передача", color: "#7185c7" },
   distributor: {
-    label: "Распределитель",
-    short: "Распределитель",
+    label: "Распределение денег",
+    short: "Распределение",
     color: "#48a5b8",
   },
   terminal: {
-    label: "Конечный получатель",
-    short: "Получатель",
+    label: "Возможный конец цепочки",
+    short: "Конец цепочки",
     color: "#a184b8",
   },
-  peripheral: { label: "Периферия", short: "Периферия", color: "#94a6a0" },
+  peripheral: {
+    label: "Роль не определена",
+    short: "Роль не ясна",
+    color: "#94a6a0",
+  },
 };
 export const warningLabels: Record<string, string> = {
-  depth_boundary: "Колено 4: дальнейшие переводы видны не полностью.",
+  depth_boundary: "После четвёртого шага дальнейшие переводы не видны.",
   partial_network: "Выборка отражает только часть финансовой сети.",
   intrabank_only: "В выборке представлены только внутрибанковские переводы.",
   outgoing_sample:
-    "Сеть собрана обходом исходящих переводов от исходных узлов.",
+    "Показаны цепочки отправлений от исходных клиентов.",
   self_transfer:
-    "Есть перевод узла самому себе; он не считается отдельным контрагентом.",
+    "Есть перевод самому себе; он не добавляет отдельного получателя.",
   incoming_date_unavailable: "Дата последнего входящего перевода недоступна.",
   active_in_days_unavailable: "Число дней с входящими переводами недоступно.",
   seed_inflow_incomplete:
-    "Входящие переводы исходного узла видны не полностью.",
-  isolated: "В выгрузке нет связей этого узла.",
+    "Входящие переводы исходного клиента видны не полностью.",
+  isolated: "В этих данных нет переводов этого клиента.",
   out_exceeds_observed_in:
     "Исходящие превышают наблюдаемые входящие. Это не полный баланс.",
   month_end_window:
@@ -130,10 +144,10 @@ export const warningLabels: Record<string, string> = {
   sampling_threshold: "Переводы меньше 5 000 ₸ не входят в выборку.",
 };
 export const capLabels: Record<string, string> = {
-  ambiguous_roles: "Несколько ролей имеют близкую поддержку",
-  depth_boundary: "Неполные связи на четвёртом колене",
+  ambiguous_roles: "Данные примерно одинаково подходят нескольким ролям",
+  depth_boundary: "Дальнейшие переводы после четвёртого шага не видны",
   terminal_observed_only: "Конец цепочки виден только в этой выборке",
-  no_temporal_confirmation: "Транзит не подтверждён по датам",
+  no_temporal_confirmation: "Передача денег дальше не подтверждена по датам",
   temporal_confirmed: "Совместимость дат не доказывает движение тех же денег",
 };
 export function money(

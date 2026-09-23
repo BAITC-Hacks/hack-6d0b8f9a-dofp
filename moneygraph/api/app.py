@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Query
@@ -7,17 +8,39 @@ from fastapi.staticfiles import StaticFiles
 
 from .models import Role, gid_string
 from .service import EXPORT_COLUMNS, QueryService
+from .imports import ImportManager, import_router
+from .excel import workbook_bytes
 
 
-def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, static_dir: str | Path | None = None) -> FastAPI:
-    """Create a read-only API from a snapshot mapping/dataclass/model or directory."""
+def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, static_dir: str | Path | None = None, import_dir: str | Path | None = None) -> FastAPI:
+    """Serve immutable results and accept local imports through the shared pipeline."""
     service = QueryService(snapshot, Path(data_dir) if data_dir else None) if snapshot is not None else None
-    app = FastAPI(title='Граф денег · Investigation API', version='1.0.0', description='Чтение готового расчёта. API не назначает роли и не изменяет исходные данные.')
+    runs = {service.run_id: service} if service else {}
+    def publish(loaded):
+        runs[loaded.run_id] = loaded
+        app.state.query_service = loaded
+        while len(runs) > 4:
+            oldest = next(iter(runs))
+            if oldest == loaded.run_id:
+                runs[oldest] = runs.pop(oldest)
+            else:
+                runs.pop(oldest)
+    manager = ImportManager(publish, root=import_dir)
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+        manager.close()
+    app = FastAPI(title='Граф денег · Investigation API', version='1.1.0', lifespan=lifespan, description='Чтение проверенных расчётов и локальная загрузка нового набора данных.')
     app.state.query_service = service
+    app.state.import_manager = manager
+    app.include_router(import_router(manager))
 
     def current(run_id: str | None = None) -> QueryService:
+        service = runs.get(run_id) if run_id is not None else app.state.query_service
+        if run_id is not None and service is None:
+            raise HTTPException(404, {'code': 'run_not_found', 'message': 'Этот расчёт больше не открыт. Обновите страницу.'})
         if service is None:
-            raise HTTPException(503, {'code': 'snapshot_not_loaded', 'message': 'Нет подключённого расчёта. Передайте готовый снимок через --snapshot.'})
+            raise HTTPException(503, {'code': 'snapshot_not_loaded', 'message': 'Данные ещё не загружены. Нажмите «Новые данные», чтобы начать.'})
         if run_id is not None and run_id != service.run_id:
             raise HTTPException(404, {'code': 'run_not_found', 'message': 'Этот расчёт не загружен. Обновите страницу для выбора текущей версии.'})
         return service
@@ -73,6 +96,11 @@ def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, stat
         if name not in EXPORT_COLUMNS:
             raise HTTPException(404, 'Unknown export')
         return Response(content=svc.exports[name], media_type='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename="{name}"', 'X-Run-Id': svc.run_id, 'Cache-Control': 'no-store'})
+
+    @app.get('/api/v1/runs/{run_id}/reports/moneygraph.xlsx')
+    def excel_report(run_id: str):
+        svc = current(run_id)
+        return Response(content=workbook_bytes(svc), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition': 'attachment; filename="moneygraph.xlsx"', 'X-Run-Id': svc.run_id, 'Cache-Control': 'no-store'})
 
     # Only / is used by the frontend. Unknown /api routes never become HTML successes.
     @app.api_route('/api/{unmatched:path}', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])

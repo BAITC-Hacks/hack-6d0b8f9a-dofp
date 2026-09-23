@@ -2010,3 +2010,152 @@ h1 {
     font-size: 9px;
   }
 }
+.import-content {
+  padding: 24px;
+}
+.upload-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px;
+  margin: 18px 0;
+  border: 1px dashed #7e9b8a;
+  border-radius: 10px;
+  background: #f4f8f5;
+  color: #244c3d;
+}
+.upload-picker span {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.upload-picker input {
+  max-width: 100%;
+}
+.file-checklist {
+  list-style: none;
+  margin: 16px 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.file-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.file-checklist strong,
+.file-checklist small {
+  display: block;
+  font-size: 13px;
+}
+.file-checklist small {
+  color: #64776d;
+  font-size: 12px;
+  margin-top: 3px;
+}
+.date-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 20px 0;
+}
+.date-inputs label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  min-width: 160px;
+}
+.date-inputs input {
+  padding: 10px;
+  border: 1px solid #bacbc0;
+  border-radius: 6px;
+  color: #244c3d;
+  background: white;
+}
+.import-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: #edf7f0;
+  color: #235d42;
+  margin: 16px 0;
+}
+.import-error {
+  padding: 12px;
+  background: #fff1ed;
+  color: #943b2a;
+  margin: 16px 0;
+  line-height: 1.6;
+}
+.technical-details {
+  font-size: 12px;
+  color: #53675e;
+  margin: 16px 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.technical-details summary {
+  cursor: pointer;
+  color: #315b49;
+  font-weight: 600;
+}
+.technical-details p {
+  margin-top: 9px;
+}
+.upload-action {
+  border: 1px solid #aac4b3;
+  color: #245740;
+  background: #eff6f1;
+  white-space: nowrap;
+}
+.cluster-card p,
+.help-grid p {
+  font-size: 14px;
+  color: #405c4f;
+  line-height: 1.65;
+}
+.help-grid strong {
+  font-size: 15px;
+  color: #244c3d;
+}
+.cluster-card .zero-explanation {
+  padding: 12px;
+  border-radius: 6px;
+  background: #edf4f0;
+  color: #294f3c;
+}
+.cluster-card .cluster-money {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 13px;
+  margin: 12px 0;
+}
+.cluster-money.secondary {
+  color: #617669;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.cluster-card footer {
+  font-size: 12px;
+  color: #536e60;
+}
+.excel-export {
+  background: #eff7f1;
+  border-color: #9ebfa8;
+}
+.excel-export strong {
+  font-size: 15px;
+  color: #21583d;
+}
+.export-item small {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #526b5a;
+}

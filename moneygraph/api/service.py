@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from .models import Edge, Node, Transaction, gid_string, minor_units, exact_integer
 from .snapshot import SCHEMA, read_snapshot
+from .presentation import explain_node, describe_clusters
 
 EXPORT_COLUMNS = {
     'nodes_roles.csv': ['gid', 'role', 'role_score', 'cluster_id', 'priority_score', 'evidence'],
@@ -252,6 +253,7 @@ class QueryService:
         if {node.cluster_id for node in self.nodes.values()} != cluster_ids:
             raise ValueError('Every node must have a corresponding cluster')
         self.clusters.sort(key=lambda row: row['cluster_id'])
+        describe_clusters(self.clusters, self.nodes, self.edges)
         self.transactions_available = 'transactions' in payload
         self.transactions: dict[str, list[dict]] = defaultdict(list)
         tx_totals = defaultdict(lambda: [0, 0])
@@ -321,7 +323,7 @@ class QueryService:
 
     def node(self, gid: str) -> dict:
         row = self.nodes[gid].model_dump()
-        return {**row, 'rank': self.rank[gid]}
+        return {**row, 'rank': self.rank[gid], 'explanation': explain_node(self.nodes[gid])}
 
     def list_nodes(self, role=None, cluster_id=None, seed_only=False, q=None, limit=50, offset=0) -> dict:
         rows = [node for node in self.ranked if (not role or node.role == role) and (cluster_id is None or node.cluster_id == cluster_id) and (not seed_only or node.is_seed) and (not q or q in node.gid)]
