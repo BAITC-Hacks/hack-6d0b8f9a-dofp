@@ -41,13 +41,14 @@ import { NetworkGraph } from "./NetworkGraph";
 import { ImportData } from "./ImportData";
 import { DailyActivity } from "./DailyActivity";
 import { PathView } from "./PathView";
+import { InvestigationIntro } from "./InvestigationIntro";
+import { ReviewEditor } from "./ReviewEditor";
 import {
   money,
   number,
   roleInfo,
   score,
   warningLabels,
-  capLabels,
   type Cluster,
   type GraphData,
   type NodeData,
@@ -141,6 +142,9 @@ export default function App() {
   const [cluster, setCluster] = useState("");
   const [seedOnly, setSeedOnly] = useState(false);
   const [page, setPage] = useState(0);
+  const queueListRef = useRef<HTMLDivElement>(null);
+  const [allClients, setAllClients] = useState(false);
+  const [multiSeed, setMultiSeed] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<NodeData | null>(null);
   const [detailError, setDetailError] = useState("");
@@ -155,7 +159,7 @@ export default function App() {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [graphError, setGraphError] = useState("");
   const [graphLoading, setGraphLoading] = useState(false);
-  const [focus, setFocus] = useState(false);
+  const [focus, setFocus] = useState(true);
   const [hops, setHops] = useState(1);
   const [colorMode, setColorMode] = useState<"role" | "cluster">("role");
   const [search, setSearch] = useState("");
@@ -179,6 +183,7 @@ export default function App() {
   const graphFocus = focus ? selected : null;
   const selectNode = useCallback((gid: string) => {
     setSelected(gid);
+    setFocus(true); setHops(1);
     setTxPage(0);
     setDetailTab("overview");
   }, []);
@@ -212,16 +217,18 @@ export default function App() {
     if (!run) return;
     const controller = new AbortController();
     const query = new URLSearchParams({
-      limit: "20",
-      offset: String(page * 20),
+      limit: "10",
+      offset: String(page * 10),
       seed_only: String(seedOnly),
     });
+    if (multiSeed) query.set("min_seed_reach", "2");
     if (role) query.set("role", role);
     if (cluster) query.set("cluster_id", cluster);
     setQueueLoading(true);
     setQueueError("");
     request<Page<NodeData>>(`${runPath(run)}/nodes?${query}`, controller.signal)
       .then((response) => {
+        if (controller.signal.aborted) return;
         setQueue(response.data);
         setSelected(
           (previous) => previous ?? response.data.items[0]?.gid ?? null,
@@ -234,7 +241,12 @@ export default function App() {
         if (!controller.signal.aborted) setQueueLoading(false);
       });
     return () => controller.abort();
-  }, [run, role, cluster, seedOnly, page, epoch]);
+  }, [run, role, cluster, seedOnly, multiSeed, page, epoch]);
+
+  useEffect(() => {
+    setTxPage(0);
+    setDetailTab("overview");
+  }, [run, selected]);
 
   useEffect(() => {
     if (!run || !selected) return;
@@ -254,6 +266,7 @@ export default function App() {
       ),
     ])
       .then(([node, tx]) => {
+        if (controller.signal.aborted) return;
         setDetail(node.data);
         setTransactions(tx.data);
       })
@@ -267,15 +280,16 @@ export default function App() {
   }, [run, selected, txPage, epoch]);
 
   useEffect(() => {
-    if (!run) return;
+    if (!run || (focus && !selected)) return;
     const controller = new AbortController();
     const query = new URLSearchParams({ limit: "250", hops: String(hops) });
     if (graphFocus) query.set("gid", graphFocus);
-    if (cluster) query.set("cluster_id", cluster);
+    if (cluster && !graphFocus) query.set("cluster_id", cluster);
+    setGraph(null);
     setGraphLoading(true);
     setGraphError("");
     request<GraphData>(`${runPath(run)}/graph?${query}`, controller.signal)
-      .then((response) => setGraph(response.data))
+      .then((response) => { if (!controller.signal.aborted) setGraph(response.data); })
       .catch((error) => {
         if (!controller.signal.aborted) setGraphError(errorMessage(error));
       })
@@ -283,7 +297,7 @@ export default function App() {
         if (!controller.signal.aborted) setGraphLoading(false);
       });
     return () => controller.abort();
-  }, [run, graphFocus, hops, cluster, epoch]);
+  }, [run, graphFocus, hops, cluster, focus, epoch]);
 
   useEffect(() => {
     if (!notice) return;
@@ -313,7 +327,14 @@ export default function App() {
       if (!controller.signal.aborted) setSearchBusy(false);
     }
   };
+  useEffect(() => { queueListRef.current?.scrollTo(0, 0); }, [page, role, cluster, seedOnly, multiSeed]);
+  const quickQuestion = (nextRole: string, seeds = false) => {
+    if (role === nextRole && multiSeed === seeds && !seedOnly && !cluster && page === 0) { setAllClients(false); return; }
+    setRole(nextRole); setMultiSeed(seeds); setSeedOnly(false); setCluster("");
+    setPage(0); setAllClients(false); setSelected(null); setDetail(null); setGraph(null); setFocus(true);
+  };
   const resetFilters = () => {
+    setMultiSeed(false); setAllClients(false); setSelected(null); setDetail(null); setGraph(null); setFocus(true);
     setRole("");
     setCluster("");
     setSeedOnly(false);
@@ -323,13 +344,15 @@ export default function App() {
   const changeCluster = (value: string) => {
     setCluster(value);
     setPage(0);
-    setFocus(false);
     const first = clusters.find((group) => String(group.cluster_id) === value)
       ?.top_gids[0];
     if (first) selectNode(first);
+    setFocus(false);
   };
   const openCluster = (id: number) => {
     changeCluster(String(id));
+    setMultiSeed(false);
+    setAllClients(false);
     setRole("");
     setSeedOnly(false);
     setModal(null);
@@ -460,6 +483,12 @@ export default function App() {
                   <span className="demo-tag">DEMO</span>
                 </div>
               )}
+              <div className="start-guide" aria-label="С чего начать расследование">
+                <strong>Начните с очереди — кого проверить первым</strong>
+                <p>Выберите клиента → изучите объяснение → проверьте связи и операции → выгрузите результат.</p>
+                <span>Роли — гипотезы. Приоритет помогает выбрать порядок проверки.</span>
+              </div>
+              <details className="dataset-context"><summary>О наборе: {number(summary.stats.n_nodes)} клиентов · {period}</summary>
               <section className="stats" aria-label="Сводка расчёта">
                 <Stat
                   icon={<Users size={19} />}
@@ -484,9 +513,10 @@ export default function App() {
                   icon={<Layers3 size={19} />}
                   label="Группы клиентов"
                   value={number(summary.stats.n_clusters)}
-                  caption="Связанные переводами клиенты"
+                  caption="Объединены по переводам; не доказательство сговора"
                 />
               </section>
+              </details>
               <div className="workspace-toolbar">
                 <div className="workspace-title">
                   <span className="section-index">01</span>
@@ -517,6 +547,13 @@ export default function App() {
                   </button>
                 </form>
               </div>
+              <nav className="quick-questions" aria-label="Быстрые вопросы к данным">
+                <span>Быстрые вопросы</span>
+                <button aria-pressed={role === "consolidator" && !multiSeed} onClick={() => quickQuestion("consolidator")}>Кто собирает?</button>
+                <button aria-pressed={role === "distributor" && !multiSeed} onClick={() => quickQuestion("distributor")}>Кто распределяет?</button>
+                <button aria-pressed={multiSeed} onClick={() => quickQuestion("", true)}>Где сходятся несколько исходных клиентов?</button>
+                {(role || multiSeed || cluster || seedOnly) && <button onClick={resetFilters}>Все клиенты</button>}
+              </nav>
               <section className="workspace">
                 <aside
                   className="queue-panel panel"
@@ -524,10 +561,10 @@ export default function App() {
                 >
                   <div className="panel-heading">
                     <div>
-                      <h3>Приоритет проверки</h3>
+                      <h3>Кого проверить первым</h3>
                       <span>
                         {queue ? `${number(queue.total)} клиентов` : "Загрузка…"} ·
-                        по убыванию оценки
+                        {allClients ? "общая очередь" : "первые 10 по текущим фильтрам"}
                       </span>
                     </div>
                     <ListFilter size={18} />
@@ -539,7 +576,7 @@ export default function App() {
                         aria-label="Фильтр по роли"
                         value={role}
                         onChange={(event) => {
-                          setRole(event.target.value);
+                          setRole(event.target.value); setMultiSeed(false); setAllClients(false); setSelected(null); setDetail(null); setGraph(null);
                           setPage(0);
                         }}
                       >
@@ -557,19 +594,19 @@ export default function App() {
                         type="checkbox"
                         checked={seedOnly}
                         onChange={(event) => {
-                          setSeedOnly(event.target.checked);
+                          setSeedOnly(event.target.checked); setAllClients(false); setSelected(null); setDetail(null); setGraph(null);
                           setPage(0);
                         }}
                       />
                       <span>Только исходные клиенты</span>
                     </label>
                   </div>
-                  {(role || cluster || seedOnly) && (
+                  {(role || cluster || seedOnly || multiSeed) && (
                     <div className="active-filters">
                       <span>
                         {cluster
                           ? `Группа ${cluster}`
-                          : "Фильтры применены"}
+                          : multiSeed ? "Связаны с 2+ исходными клиентами" : "Фильтры применены"}
                       </span>
                       <button onClick={resetFilters}>
                         Сбросить <X size={12} />
@@ -581,6 +618,7 @@ export default function App() {
                     <span>Приоритет</span>
                   </div>
                   <div
+                    ref={queueListRef}
                     className={`queue-list ${queueLoading ? "is-loading" : ""}`}
                     aria-busy={queueLoading}
                   >
@@ -615,6 +653,7 @@ export default function App() {
                               />
                               {roleInfo[node.role].short}
                             </span>
+                            <small className="queue-reason">{node.queue_reason}</small>
                           </span>
                           <span className="queue-score">
                             <strong>{score(node.priority_score)}</strong>
@@ -642,13 +681,15 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                  {!allClients && (queue?.total ?? 0) > 10 && <button className="queue-more" onClick={() => { setAllClients(true); setPage(1); }}>Показать остальных клиентов →</button>}
+                  {allClients && <button className="queue-more" onClick={() => { setAllClients(false); setPage(0); }}>Вернуться к первым 10</button>}
                   <div className="queue-footer">
                     <span>
                       {queue?.total
-                        ? `${page * 20 + 1}–${Math.min((page + 1) * 20, queue.total)} из ${number(queue.total)}`
+                        ? `${page * 10 + 1}–${Math.min((page + 1) * 10, queue.total)} из ${number(queue.total)}`
                         : "Нет результатов"}
                     </span>
-                    <div>
+                    <div hidden={!allClients}>
                       <button
                         aria-label="Предыдущая страница клиентов"
                         disabled={page === 0 || queueLoading}
@@ -660,7 +701,7 @@ export default function App() {
                         aria-label="Следующая страница клиентов"
                         disabled={
                           !queue ||
-                          (page + 1) * 20 >= queue.total ||
+                          (page + 1) * 10 >= queue.total ||
                           queueLoading
                         }
                         onClick={() => setPage((value) => value + 1)}
@@ -670,140 +711,6 @@ export default function App() {
                     </div>
                   </div>
                 </aside>
-                <section
-                  className="graph-panel panel"
-                  aria-label="Граф переводов"
-                >
-                  <div className="panel-heading">
-                    <div>
-                      <h3>
-                        <Network size={17} />
-                        Карта связей
-                      </h3>
-                      <span>
-                        {focus
-                          ? `Связи клиента ${selected ?? "—"}`
-                          : "Направление движения средств"}
-                      </span>
-                    </div>
-                    <div className="segmented">
-                      <button
-                        className={colorMode === "role" ? "active" : ""}
-                        onClick={() => setColorMode("role")}
-                      >
-                        Роли
-                      </button>
-                      <button
-                        className={colorMode === "cluster" ? "active" : ""}
-                        onClick={() => setColorMode("cluster")}
-                      >
-                        Группы
-                      </button>
-                    </div>
-                  </div>
-                  <div className="graph-filterbar">
-                    <select
-                      aria-label="Группа на карте"
-                      value={cluster}
-                      onChange={(event) => {
-                        changeCluster(event.target.value);
-                      }}
-                    >
-                      <option value="">Все группы</option>
-                      {clusters.map((group) => (
-                        <option key={group.cluster_id} value={group.cluster_id}>
-                          Группа {group.cluster_id} · {group.n_nodes}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="scope-buttons">
-                      <button
-                        className={!focus ? "active" : ""}
-                        onClick={() => setFocus(false)}
-                      >
-                        Вся сеть
-                      </button>
-                      <button
-                        disabled={!selected}
-                        className={focus && hops === 1 ? "active" : ""}
-                        onClick={() => {
-                          setFocus(true);
-                          setHops(1);
-                        }}
-                      >
-                        1 шаг
-                      </button>
-                      <button
-                        disabled={!selected}
-                        className={focus && hops === 2 ? "active" : ""}
-                        onClick={() => {
-                          setFocus(true);
-                          setHops(2);
-                        }}
-                      >
-                        2 шага
-                      </button>
-                    </div>
-                  </div>
-                  <div className="graph-content">
-                    {graphError ? (
-                      <ErrorBox message={graphError} retry={reload} />
-                    ) : graph ? (
-                      <NetworkGraph
-                        data={graph}
-                        selected={selected}
-                        onSelect={selectNode}
-                        colorMode={colorMode}
-                      />
-                    ) : (
-                      <Loading text="Строим представление графа…" />
-                    )}
-                    {graphLoading && graph && (
-                      <div className="graph-busy">
-                        <LoaderCircle size={16} className="spin" />
-                        Обновляем граф
-                      </div>
-                    )}
-                  </div>
-                  {graph?.truncated && (
-                    <div className="truncation">
-                      <Info size={14} />
-                      Скрыто клиентов: {graph.hidden_nodes}, связей:{" "}
-                      {graph.hidden_edges}. Выберите группу или связи одного клиента.
-                    </div>
-                  )}
-                  <div className="graph-legend">
-                    {colorMode === "role" ? (
-                      Object.entries(roleInfo).map(([key, value]) => (
-                        <span key={key}>
-                          <i style={{ background: value.color }} />
-                          {value.short}
-                        </span>
-                      ))
-                    ) : (
-                      <span>
-                        <Layers3 size={13} />
-                        Цвет обозначает группу; её номер — в карточке клиента
-                      </span>
-                    )}
-                    <span>
-                      <i className="legend-seed" />
-                      Исходный клиент
-                    </span>
-                    <span>
-                      <i className="legend-boundary" />
-                      Граница обхода
-                    </span>
-                  </div>
-                  <div className="graph-footer">
-                    <span>
-                      <i />
-                      {number(graph?.nodes.length)} клиентов ·{" "}
-                      {number(graph?.edges.length)} связей на экране
-                    </span>
-                    <span>Стрелка = перевод</span>
-                  </div>
-                </section>
                 <aside
                   className="detail-panel panel"
                   aria-label="Карточка клиента"
@@ -820,7 +727,7 @@ export default function App() {
                     <>
                       <div className="node-identity">
                         <div className="identity-top">
-                          <span className="micro-label">НОМЕР КЛИЕНТА</span>
+                          <span className="micro-label">ID КЛИЕНТА</span>
                           <span className="cluster-chip">
                             Группа {detail.cluster_id}
                           </span>
@@ -840,6 +747,7 @@ export default function App() {
                           </button>
                         </h2>
                         <div className="identity-badges">
+                          <span className="role-hint">Предполагаемая роль</span>
                           <Badge role={detail.role} />
                           {detail.is_seed && (
                             <span className="seed-badge">ИСХОДНЫЙ</span>
@@ -876,106 +784,20 @@ export default function App() {
                           className={detailTab === "daily" ? "active" : ""}
                           onClick={() => setDetailTab("daily")}>По дням</button>
                       </div>
-                      <div className="detail-scroll">
+                      <div className="detail-scroll" key={detailTab}>
                         {detailTab === "daily" && run ? (
                           <DailyActivity key={`${run}:${detail.gid}`} run={run} gid={detail.gid} />
                         ) : detailTab === "overview" ? (
                           <>
-                            <div className="priority-card">
-                              <div>
-                                <span>Приоритет проверки</span>
-                                <strong>
-                                  {score(detail.priority_score)}
-                                  <small>/ 100</small>
-                                </strong>
-                              </div>
-                              <div className="priority-track">
-                                <i
-                                  style={{
-                                    width: score(detail.priority_score) + "%",
-                                  }}
-                                />
-                              </div>
-                              <p>Позиция {detail.rank} в общей очереди</p>
-                            </div>
-                            <div className="evidence-box">
-                              <span className="micro-label">
-                                <Info size={12} />
-                                ЧТО ВИДНО ПО ПЕРЕВОДАМ
-                              </span>
-                              <p>{detail.explanation ?? detail.evidence}</p>
-                            </div>
-                            <div className="flow-grid">
-                              <div>
-                                <span>
-                                  <ArrowDownLeft size={14} />
-                                  Входящие
-                                </span>
-                                <strong>
-                                  {money(detail.metrics.in_minor, true)}
-                                </strong>
-                                <small>
-                                  от {number(detail.metrics.in_deg)}{" "}
-                                  контрагентов
-                                </small>
-                              </div>
-                              <div>
-                                <span>
-                                  <ArrowUpRight size={14} />
-                                  Исходящие
-                                </span>
-                                <strong>
-                                  {money(detail.metrics.out_minor, true)}
-                                </strong>
-                                <small>
-                                  к {number(detail.metrics.out_deg)}{" "}
-                                  контрагентам
-                                </small>
-                              </div>
-                            </div>
-                            <div className="confidence-row">
-                              <span>Насколько ясна роль</span>
-                              <strong>{score(detail.role_score)} / 100</strong>
-                            </div>
-                            <div className="confidence-track">
-                              <i
-                                style={{
-                                  width: score(detail.role_score) + "%",
-                                }}
-                              />
-                            </div>
-                            <p className="fine-print">
-                              Из 100 баллов: насколько ясно данные указывают на
-                              эту роль. Это не вероятность нарушения.
-                            </p>
-                            {!!Object.keys(
-                              detail.rule_details?.assignment?.caps ?? {},
-                            ).length && (
-                              <div className="limitations">
-                                <h4>
-                                  <Info size={14} />
-                                  Почему оценка роли ограничена
-                                </h4>
-                                {Object.entries(
-                                  detail.rule_details?.assignment?.caps ?? {},
-                                ).map(([key, value]) => (
-                                  <p key={key}>
-                                    {capLabels[key] ?? key}: не выше{" "}
-                                    {score(value)} / 100.
-                                  </p>
-                                ))}
-                                <p>
-                                  Высокий приоритет означает сильные сигналы для
-                                  проверки. Конкретная роль при этом может быть
-                                  неоднозначной.
-                                </p>
-                              </div>
-                            )}
+                            {run && <InvestigationIntro key={`${run}:${detail.gid}`} node={detail} run={run} period={period}
+                              transactionCount={transactions?.available ? transactions.total : null}
+                              onTransactions={() => { setTxPage(0); setDetailTab("transactions"); }}
+                              onPath={() => openPath(0)} onExport={() => setModal("exports")} />}
                             {!!detail.warnings.length && (
                               <div className="limitations">
                                 <h4>
                                   <Info size={14} />
-                                  Ограничения наблюдения
+                                  Что данные не позволяют утверждать
                                 </h4>
                                 {detail.warnings.map((item) => (
                                   <p key={item}>
@@ -1004,6 +826,7 @@ export default function App() {
                               </>}
                               <p className="fine-print">Это примеры связей, а не доказательство движения одних и тех же денег по всей цепочке.</p>
                             </div>
+                            {run && <ReviewEditor key={`${run}:${detail.gid}`} run={run} gid={detail.gid} />}
                             <details className="technical-details">
                               <summary>Подробности расчёта</summary>
                             {!!detail.alternatives?.length && (
@@ -1147,11 +970,147 @@ export default function App() {
                   ) : (
                     <div className="empty-state">
                       <Fingerprint size={28} />
-                      <strong>Выберите узел</strong>
+                      <strong>Выберите клиента</strong>
                       <p>Нажмите на граф или строку в очереди.</p>
                     </div>
                   )}
                 </aside>
+                <section
+                  className="graph-panel panel"
+                  aria-label="Граф переводов"
+                >
+                  <div className="panel-heading">
+                    <div>
+                      <h3>
+                        <Network size={17} />
+                        Карта связей
+                      </h3>
+                      <span>
+                        {focus
+                          ? `Связи клиента ${selected ?? "—"} · все группы`
+                          : "Направление движения средств"}
+                      </span>
+                    </div>
+                    <div className="segmented">
+                      <button
+                        className={colorMode === "role" ? "active" : ""}
+                        onClick={() => setColorMode("role")}
+                      >
+                        Роли
+                      </button>
+                      <button
+                        className={colorMode === "cluster" ? "active" : ""}
+                        onClick={() => setColorMode("cluster")}
+                      >
+                        Группы
+                      </button>
+                    </div>
+                  </div>
+                  <div className="graph-filterbar">
+                    <select
+                      aria-label="Группа на карте"
+                      value={cluster}
+                      onChange={(event) => {
+                        changeCluster(event.target.value);
+                      }}
+                    >
+                      <option value="">Все группы</option>
+                      {clusters.map((group) => (
+                        <option key={group.cluster_id} value={group.cluster_id}>
+                          Группа {group.cluster_id} · {group.n_nodes}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="scope-buttons">
+                      <button
+                        className={!focus ? "active" : ""}
+                        onClick={() => setFocus(false)}
+                      >
+                        Вся сеть
+                      </button>
+                      <button
+                        disabled={!selected}
+                        className={focus && hops === 1 ? "active" : ""}
+                        onClick={() => {
+                          setFocus(true);
+                          setHops(1);
+                        }}
+                      >
+                        1 шаг
+                      </button>
+                      <button
+                        disabled={!selected}
+                        className={focus && hops === 2 ? "active" : ""}
+                        onClick={() => {
+                          setFocus(true);
+                          setHops(2);
+                        }}
+                      >
+                        2 шага
+                      </button>
+                    </div>
+                  </div>
+                  <div className="graph-content">
+                    {graphError ? (
+                      <ErrorBox message={graphError} retry={reload} />
+                    ) : graph ? (
+                      <NetworkGraph
+                        data={graph}
+                        selected={selected}
+                        onSelect={selectNode}
+                        colorMode={colorMode}
+                      />
+                    ) : (
+                      <Loading text="Строим представление графа…" />
+                    )}
+                    {graphLoading && graph && (
+                      <div className="graph-busy">
+                        <LoaderCircle size={16} className="spin" />
+                        Обновляем граф
+                      </div>
+                    )}
+                  </div>
+                  {graph?.truncated && (
+                    <div className="truncation" role="status">
+                      <strong>Показана только часть связей.</strong>
+                      <Info size={14} />
+                      Скрыто клиентов: {graph.hidden_nodes}, связей:{" "}
+                      {graph.hidden_edges}. Выберите группу или связи одного клиента.
+                    </div>
+                  )}
+                  <div className="direction-legend"><span>→ К клиенту: поступления</span><span>→ От клиента: отправления</span></div>
+                  <div className="graph-legend">
+                    {colorMode === "role" ? (
+                      Object.entries(roleInfo).map(([key, value]) => (
+                        <span key={key}>
+                          <i style={{ background: value.color }} />
+                          {value.short}
+                        </span>
+                      ))
+                    ) : (
+                      <span>
+                        <Layers3 size={13} />
+                        Цвет обозначает группу; её номер — в карточке клиента
+                      </span>
+                    )}
+                    <span>
+                      <i className="legend-seed" />
+                      Исходный клиент
+                    </span>
+                    <span>
+                      <i className="legend-boundary" />
+                      Конец глубины данных
+                    </span>
+                  </div>
+                  <div className="graph-footer">
+                    <span>
+                      <i />
+                      {number(graph?.nodes.length)} клиентов ·{" "}
+                      {number(graph?.edges.length)} связей на экране
+                    </span>
+                    <span>Стрелка = перевод</span>
+                  </div>
+                </section>
               </section>
               <footer className="page-footer">
                 <span>
@@ -1212,7 +1171,7 @@ export default function App() {
                 setDetail(null);
                 setRole("");
                 setCluster("");
-                setSeedOnly(false);
+                setSeedOnly(false); setMultiSeed(false); setAllClients(false);
                 setPage(0);
                 setFocus(false);
                 setSearch("");

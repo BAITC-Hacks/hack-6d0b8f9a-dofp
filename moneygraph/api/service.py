@@ -13,7 +13,7 @@ from typing import Any, Mapping
 
 from .models import Edge, Node, Transaction, gid_string, minor_units, exact_integer
 from .snapshot import SCHEMA, read_snapshot
-from .presentation import explain_node, describe_clusters
+from .presentation import explain_node, describe_clusters, investigation_insight
 
 EXPORT_COLUMNS = {
     'nodes_roles.csv': ['gid', 'role', 'role_score', 'cluster_id', 'priority_score', 'evidence'],
@@ -332,7 +332,7 @@ class QueryService:
 
     def node(self, gid: str) -> dict:
         row = self.nodes[gid].model_dump()
-        return {**row, 'rank': self.rank[gid], 'explanation': explain_node(self.nodes[gid]), 'paths_available': self.paths_available[gid]}
+        return {**row, **investigation_insight(self.nodes[gid]), 'rank': self.rank[gid], 'explanation': explain_node(self.nodes[gid]), 'paths_available': self.paths_available[gid]}
 
     def path_view(self, gid: str, path_index: int) -> dict:
         from moneygraph.analytics.graph import seed_path_view
@@ -341,8 +341,10 @@ class QueryService:
         view['nodes'] = [{**self.node(n['gid']), 'step_index': n['step_index']} for n in view['nodes']]
         return {**view, 'hops': len(view['edges'])}
 
-    def list_nodes(self, role=None, cluster_id=None, seed_only=False, q=None, limit=50, offset=0) -> dict:
+    def list_nodes(self, role=None, cluster_id=None, seed_only=False, q=None, limit=50, offset=0, min_seed_reach=None) -> dict:
         rows = [node for node in self.ranked if (not role or node.role == role) and (cluster_id is None or node.cluster_id == cluster_id) and (not seed_only or node.is_seed) and (not q or q in node.gid)]
+        if min_seed_reach is not None:
+            rows = [node for node in rows if int(node.metrics.get('reachable_seeds') or 0) >= min_seed_reach]
         return {'items': [self.node(node.gid) for node in rows[offset:offset + limit]], 'total': len(rows), 'limit': limit, 'offset': offset}
 
     def graph(self, gid=None, hops=1, limit=250, cluster_id=None) -> dict:

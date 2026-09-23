@@ -141,20 +141,21 @@ class ImportManager:
             job['temp'].cleanup()
 
 
+def local_request(request):
+    # Reject cross-site forms/fetch and DNS rebinding; no CORS is enabled.
+    from urllib.parse import urlsplit
+    host = urlsplit(str(request.url)).hostname
+    if host not in ('127.0.0.1', 'localhost', '::1'):
+        raise HTTPException(403, 'Изменения доступны только через локальный адрес.')
+    if request.headers.get('x-moneygraph-client') != 'local-ui':
+        raise HTTPException(403, 'Выполните действие через интерфейс приложения.')
+    origin = request.headers.get('origin')
+    if origin and origin != f'{request.url.scheme}://{request.url.netloc}':
+        raise HTTPException(403, 'Изменения с другого сайта запрещены.')
+
+
 def import_router(manager):
     router = APIRouter(prefix='/api/v1/imports')
-
-    def local_request(request):
-        # Reject cross-site forms/fetch and DNS rebinding; no CORS is enabled.
-        from urllib.parse import urlsplit
-        host = urlsplit(str(request.url)).hostname
-        if host not in ('127.0.0.1', 'localhost', '::1'):
-            raise HTTPException(403, 'Загрузка доступна только через локальный адрес.')
-        if request.headers.get('x-moneygraph-client') != 'local-ui':
-            raise HTTPException(403, 'Загрузите файлы через интерфейс приложения.')
-        origin = request.headers.get('origin')
-        if origin and origin != f'{request.url.scheme}://{request.url.netloc}':
-            raise HTTPException(403, 'Загрузка с другого сайта запрещена.')
 
     @router.post('', status_code=201)
     def begin(spec: ImportSpec, request: Request):

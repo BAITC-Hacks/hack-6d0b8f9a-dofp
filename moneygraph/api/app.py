@@ -10,9 +10,10 @@ from .models import Role, gid_string
 from .service import EXPORT_COLUMNS, QueryService
 from .imports import ImportManager, import_router
 from .excel import workbook_bytes
+from .reviews import review_router
 
 
-def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, static_dir: str | Path | None = None, import_dir: str | Path | None = None) -> FastAPI:
+def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, static_dir: str | Path | None = None, import_dir: str | Path | None = None, review_path: str | Path | None = None) -> FastAPI:
     """Serve immutable results and accept local imports through the shared pipeline."""
     service = QueryService(snapshot, Path(data_dir) if data_dir else None) if snapshot is not None else None
     runs = {service.run_id: service} if service else {}
@@ -54,6 +55,8 @@ def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, stat
             raise HTTPException(404, {'code': 'node_not_found', 'message': f'Узел {normalized} отсутствует в расчёте.'})
         return normalized
 
+    app.include_router(review_router(review_path or Path.cwd() / 'out' / 'reviews.sqlite3', current, require_node))
+
     @app.get('/health')
     def health():
         svc = current()
@@ -65,9 +68,9 @@ def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, stat
         return svc.envelope(svc.summary())
 
     @app.get('/api/v1/runs/{run_id}/nodes')
-    def list_nodes(run_id: str, role: Role | None = None, cluster_id: Annotated[int | None, Query(ge=0)] = None, seed_only: bool = False, q: Annotated[str | None, Query(max_length=20)] = None, limit: Annotated[int, Query(ge=1, le=500)] = 50, offset: Annotated[int, Query(ge=0)] = 0):
+    def list_nodes(run_id: str, role: Role | None = None, cluster_id: Annotated[int | None, Query(ge=0)] = None, seed_only: bool = False, q: Annotated[str | None, Query(max_length=20)] = None, limit: Annotated[int, Query(ge=1, le=500)] = 50, offset: Annotated[int, Query(ge=0)] = 0, min_seed_reach: Annotated[int | None, Query(ge=2)] = None):
         svc = current(run_id)
-        return svc.envelope(svc.list_nodes(role, cluster_id, seed_only, q, limit, offset))
+        return svc.envelope(svc.list_nodes(role, cluster_id, seed_only, q, limit, offset, min_seed_reach))
 
     @app.get('/api/v1/runs/{run_id}/nodes/{gid}')
     def get_node(run_id: str, gid: str):

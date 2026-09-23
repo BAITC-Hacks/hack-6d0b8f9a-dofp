@@ -13,6 +13,8 @@ export interface NodeData {
   cluster_id: number;
   evidence: string;
   explanation?: string;
+  queue_reason?: string;
+  priority_reason?: string;
   depth: number | null;
   is_seed: boolean;
   rank: number;
@@ -127,7 +129,7 @@ export const roleInfo: Record<
   },
 };
 export const warningLabels: Record<string, string> = {
-  depth_boundary: "После четвёртого шага дальнейшие переводы не видны.",
+  depth_boundary: "Здесь заканчивается глубина данных; дальнейшие переводы неизвестны.",
   partial_network: "Выборка отражает только часть финансовой сети.",
   intrabank_only: "В выборке представлены только внутрибанковские переводы.",
   outgoing_sample:

@@ -6,6 +6,30 @@ ROLE_LABELS = {'consolidator': 'Сбор денег', 'distributor': 'Распр
     'coordinator': 'Связующий участник', 'peripheral': 'Роль не определена'}
 
 
+def investigation_insight(node):
+    """Describe existing features/contributions without inventing another score."""
+    m = node.metrics
+    incoming, outgoing = m.get('in_deg'), m.get('out_deg')
+    seeds = m.get('reachable_seeds')
+    reason = (f'Плательщиков: {incoming} → получателей: {outgoing}'
+              if incoming is not None and outgoing is not None else 'Показателей переводов недостаточно')
+    if 'isolated' in node.warnings:
+        reason = 'В выборке нет переводов'
+    elif node.role == 'coordinator' and seeds is not None:
+        reason = f'Связан с исходными клиентами: {seeds}'
+    labels = {'seed_reach': 'связи с исходными клиентами', 'role_support': 'совпадение признаков предполагаемой роли',
+              'betweenness': 'положение между цепочками переводов', 'volume': 'объём переводов',
+              'seed_context': 'связи с исходными клиентами', 'network_position': 'положение между цепочками переводов'}
+    contributions = sorted((item for item in node.contributions if isinstance(item.get('value'), (int, float)) and item['value'] > 0),
+                           key=lambda item: -item['value'])
+    factors = [labels[item['key']] for item in contributions if item['key'] in labels][:2]
+    priority_reason = ('На место в очереди больше всего влияют: ' + '; '.join(factors) + '.'
+                       if factors else 'Подробные причины места в очереди не переданы в этом расчёте.')
+    if 'isolated' in node.warnings and node.priority_score == 0:
+        priority_reason = 'Клиент сохранён из исходного списка. В этой выборке нет переводов и сигналов для высокого приоритета.'
+    return {'queue_reason': reason, 'priority_reason': priority_reason}
+
+
 def explain_node(node):
     m = node.metrics
     incoming, outgoing = m.get('in_deg'), m.get('out_deg')

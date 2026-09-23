@@ -113,6 +113,7 @@ export function NetworkGraph({
           },
         },
         { selector: ".faded", style: { opacity: 0.24 } },
+
         {
           selector: "node.focus",
           style: {
@@ -132,6 +133,8 @@ export function NetworkGraph({
             width: 2,
           },
         },
+        { selector: "edge.incoming", style: { "line-color": "#168b6b", "target-arrow-color": "#168b6b", "line-style": "solid", width: 2.5 } },
+        { selector: "edge.outgoing", style: { "line-color": "#7957bd", "target-arrow-color": "#7957bd", "line-style": "dashed", width: 2.5 } },
       ],
       layout: isPath ? { name: "preset", fit: true, padding: 55 } : {
         name: "cose",
@@ -166,7 +169,7 @@ export function NetworkGraph({
   useEffect(() => {
     const graph = core.current;
     if (!graph) return;
-    graph.elements().removeClass("faded focus connected");
+    graph.elements().removeClass("faded focus connected incoming outgoing");
     if (!selected) return;
     const target = graph.getElementById(selected);
     if (!target.length) return;
@@ -178,6 +181,8 @@ export function NetworkGraph({
     graph.elements().difference(neighbors).addClass("faded");
     target.addClass("focus");
     target.connectedEdges().addClass("connected");
+    target.incomers("edge").addClass("incoming");
+    target.outgoers("edge").addClass("outgoing");
   }, [selected, data, colorMode]);
   const zoom = (factor: number) => {
     const graph = core.current;
@@ -193,11 +198,11 @@ export function NetworkGraph({
         ref={container}
         className="network-canvas"
         role="img"
-        aria-label={`Граф: ${data.nodes.length} узлов, ${data.edges.length} направленных связей. Для выбора узла также доступна очередь проверок.`}
+        aria-label={`Граф: клиентов — ${data.nodes.length}, направленных связей — ${data.edges.length}. Для выбора клиента также доступна очередь проверок.`}
       />
       {edgeTip && <div className="edge-tooltip" role="tooltip">{edgeTip}</div>}
       {!data.nodes.length && (
-        <div className="graph-empty">Нет узлов для выбранного фильтра</div>
+        <div className="graph-empty">Нет клиентов для выбранного фильтра</div>
       )}
       <div className="graph-controls">
         <button
@@ -223,7 +228,7 @@ export function NetworkGraph({
           <Crosshair size={17} />
         </button>
       </div>
-      <div className="graph-hint">Перетаскивайте узлы · Колесо — масштаб</div>
+      <div className="graph-hint">Перетаскивайте точки клиентов · Колесо — масштаб</div>
     </div>
   );
 }
