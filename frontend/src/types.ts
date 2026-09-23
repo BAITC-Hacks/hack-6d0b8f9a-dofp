@@ -21,6 +21,9 @@ export interface NodeData {
   paths: string[][];
   rule_id: string | null;
   alternatives?: { role: Role; support: number; rule_id?: string }[];
+  rule_details?: {
+    assignment?: { support?: number; caps?: Record<string, number> };
+  };
 }
 export interface Edge {
   src: string;
@@ -125,6 +128,13 @@ export const warningLabels: Record<string, string> = {
     "До конца периода недостаточно времени для проверки дальнейшего движения.",
   date_only: "Известна дата, но не порядок операций внутри дня.",
   sampling_threshold: "Переводы меньше 5 000 ₸ не входят в выборку.",
+};
+export const capLabels: Record<string, string> = {
+  ambiguous_roles: "Несколько ролей имеют близкую поддержку",
+  depth_boundary: "Неполные связи на четвёртом колене",
+  terminal_observed_only: "Конец цепочки виден только в этой выборке",
+  no_temporal_confirmation: "Транзит не подтверждён по датам",
+  temporal_confirmed: "Совместимость дат не доказывает движение тех же денег",
 };
 export function money(
   minor: string | number | null | undefined,

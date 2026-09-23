@@ -43,6 +43,7 @@ import {
   roleInfo,
   score,
   warningLabels,
+  capLabels,
   type Cluster,
   type GraphData,
   type NodeData,
@@ -908,6 +909,29 @@ export default function App() {
                               Эвристическая оценка. Не вероятность
                               правонарушения.
                             </p>
+                            {!!Object.keys(
+                              detail.rule_details?.assignment?.caps ?? {},
+                            ).length && (
+                              <div className="limitations">
+                                <h4>
+                                  <Info size={14} />
+                                  Почему оценка роли ограничена
+                                </h4>
+                                {Object.entries(
+                                  detail.rule_details?.assignment?.caps ?? {},
+                                ).map(([key, value]) => (
+                                  <p key={key}>
+                                    {capLabels[key] ?? key}: не выше{" "}
+                                    {score(value)} / 100.
+                                  </p>
+                                ))}
+                                <p>
+                                  Высокий приоритет означает сильные сигналы для
+                                  проверки. Конкретная роль при этом может быть
+                                  неоднозначной.
+                                </p>
+                              </div>
+                            )}
                             {!!detail.alternatives?.length && (
                               <div className="contributions">
                                 <h4>Дополнительные признаки ролей</h4>
@@ -1139,8 +1163,10 @@ export default function App() {
                 <div>
                   <strong>Приоритет</strong>
                   <p>
-                    Позиция в очереди внимания аналитика. Не вероятность
-                    виновности.
+                    Очередь исследования сильных структурных сигналов. Приоритет
+                    учитывает признаки роли до ограничения её оценки, поэтому
+                    может оставаться высоким при неоднозначной роли. Это не
+                    вероятность виновности.
                   </p>
                 </div>
                 <div>
@@ -1153,8 +1179,8 @@ export default function App() {
                 <div>
                   <strong>Граница обхода</strong>
                   <p>
-                    После четвёртого колена переводы не наблюдаются. Нельзя
-                    делать вывод, что деньги остались.
+                    На четвёртом колене дальнейшие переводы видны не полностью.
+                    Нельзя делать вывод, что деньги остались.
                   </p>
                 </div>
               </div>

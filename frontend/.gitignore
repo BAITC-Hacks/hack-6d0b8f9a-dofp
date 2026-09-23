@@ -1,3 +1,6 @@
 node_modules/
 .vite/
 *.local
+# The shared root ignores dist; this local build is deliberately shipped.
+!dist/
+!dist/**

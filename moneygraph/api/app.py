@@ -80,6 +80,12 @@ def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, stat
         raise HTTPException(404, 'Unknown API route')
 
     build = Path(static_dir) if static_dir else Path(__file__).resolve().parents[2] / 'frontend' / 'dist'
-    if build.is_dir():
+    if static_dir is not None and not (build / 'index.html').is_file():
+        raise ValueError('Frontend build not found: --static-dir must contain index.html and assets')
+    if (build / 'index.html').is_file():
         app.mount('/', StaticFiles(directory=build, html=True), name='frontend')
+    else:
+        @app.get('/')
+        def frontend_unavailable():
+            raise HTTPException(503, {'code': 'frontend_not_found', 'message': 'Frontend build is not installed. Run from the repository or pass --static-dir PATH/frontend/dist.'})
     return app

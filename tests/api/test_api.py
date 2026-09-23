@@ -27,6 +27,11 @@ def test_empty_service_is_not_a_successful_empty_analysis():
     assert client.get('/api/v1/runs/current').json()['detail']['code'] == 'snapshot_not_loaded'
 
 
+def test_missing_explicit_frontend_directory_fails_at_startup(tmp_path):
+    with pytest.raises(ValueError, match='Frontend build not found'):
+        create_app(demo_snapshot(), static_dir=tmp_path)
+
+
 def test_demo_and_currency_are_explicit(client):
     body = client.get('/api/v1/runs/current').json()
     assert body['data']['demo'] is True
