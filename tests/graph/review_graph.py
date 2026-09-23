@@ -131,13 +131,18 @@ def demo_scenarios(graph, features):
                                         "reachable_seeds", "other_neighbor_clusters", "cluster_id",
                                         "isolated", "depth_boundary")},
                           "observation_flags": r["observation_flags"],
+                          "incoming_edges": [{"src": str(a), "dst": str(b)}
+                                             for a, b in sorted(graph.in_edges(gid)) if a != b][:5],
+                          "outgoing_edges": [{"src": str(a), "dst": str(b)}
+                                             for a, b in sorted(graph.out_edges(gid)) if a != b][:5],
                           "seed_paths": [[str(g) for g in path] for path in routes],
                           "cross_cluster_edges": cross})
 
     add("isolated_seed", [r for r in rows if r["is_seed"] and r["isolated"]],
         lambda r: r["gid"], "Исходный клиент сохранён, хотя переводов в выгрузке нет.",
         ["Найти gid", "Проверить нулевые потоки и пустую окрестность", "Показать флаг isolated"])
-    add("depth_boundary", [r for r in rows if r["depth_boundary"] and r["out_tx"] == 0],
+    add("depth_boundary", [r for r in rows if r["depth_boundary"] and r["out_tx"] == 0
+                           and any(len(p) == 5 for p in r["seed_paths"])],
         lambda r: (-r["in_degree"], -r["in_minor"], r["gid"]),
         "Нет видимых исходящих: обход закончился; удержание денег не установлено.",
         ["Найти gid", "Показать входящие стрелки и depth=4", "Проверить предупреждение о границе"])
@@ -145,14 +150,18 @@ def demo_scenarios(graph, features):
         lambda r: (-r["reachable_seeds"], -r["in_degree"], r["gid"]),
         "Несколько исходных ветвей структурно достигают клиента; это не трассировка тех же денег.",
         ["Открыть карточку", "Сопоставить reachable_seeds и примеры путей", "Показать два разных seed"])
-    add("community_bridge", [r for r in rows if r["other_neighbor_clusters"] >= 2
-                              and r["in_degree"] and r["out_degree"]],
-        lambda r: (-r["other_neighbor_clusters"], -r["betweenness"], r["gid"]),
-        "Узел связан с несколькими другими сообществами; его роль определяет слой B.",
-        ["Включить окраску кластеров", "Раскрыть соседей", "Сверить межкластерные стрелки"])
-    add("four_hop_path", [r for r in rows if any(len(p) == 5 for p in r["seed_paths"])],
-        lambda r: r["gid"], "Путь содержит ровно четыре перевода; глубина сбора не равна должности.",
-        ["Открыть путь из пяти узлов", "Проверить четыре направленных ребра", "Объяснить ограничение хронологии"])
+    add("collection", [r for r in rows if r["in_degree"] >= 3
+                       and r["in_degree"] >= 2 * max(1, r["out_degree"])
+                       and not r["depth_boundary"] and not r["is_seed"]],
+        lambda r: (-r["in_degree"], -r["in_minor"], r["gid"]),
+        "Много плательщиков сходятся к узлу: структурный пример сбора, итоговую роль назначает B.",
+        ["Найти gid", "Показать входящие стрелки", "Сравнить число плательщиков и получателей"])
+    add("distribution", [r for r in rows if r["out_degree"] >= 3
+                         and r["out_degree"] >= 2 * max(1, r["in_degree"])
+                         and not r["depth_boundary"] and not r["is_seed"]],
+        lambda r: (-r["out_degree"], -r["out_minor"], r["gid"]),
+        "Узел переводит многим получателям: структурный пример распределения, итоговую роль назначает B.",
+        ["Найти gid", "Показать исходящие стрелки", "Отличить число получателей от числа операций"])
     return scenarios
 
 

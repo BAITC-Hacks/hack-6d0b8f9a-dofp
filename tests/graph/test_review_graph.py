@@ -50,12 +50,17 @@ def test_real_stability_and_demo_witnesses():
     assert by_kind["isolated_seed"]["expected"]["isolated"]
     assert by_kind["depth_boundary"]["expected"]["out_tx"] == 0
     assert len(by_kind["converging_seeds"]["seed_paths"]) >= 2
-    assert len(by_kind["community_bridge"]["cross_cluster_edges"]) >= 2
-    assert any(len(p) == 5 for p in by_kind["four_hop_path"]["seed_paths"])
+    assert len(by_kind["collection"]["incoming_edges"]) >= 3
+    assert len(by_kind["distribution"]["outgoing_edges"]) >= 3
+    assert any(len(p) == 5 for p in by_kind["depth_boundary"]["seed_paths"])
     labels = dict(zip(assignment.gid, assignment.cluster_id))
     for scenario in scenarios:
         gid = int(scenario["gid"])
         assert gid in g
+        for link in scenario["incoming_edges"]:
+            assert int(link["dst"]) == gid and g.has_edge(int(link["src"]), gid)
+        for link in scenario["outgoing_edges"]:
+            assert int(link["src"]) == gid and g.has_edge(gid, int(link["dst"]))
         for path in scenario["seed_paths"]:
             route = list(map(int, path))
             assert route[-1] == gid and route[0] != gid and g.nodes[route[0]]["is_seed"]
