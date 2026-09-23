@@ -39,6 +39,7 @@ import {
 import { request, errorMessage, runPath, ApiError } from "./api";
 import { NetworkGraph } from "./NetworkGraph";
 import { ImportData } from "./ImportData";
+import { DailyActivity } from "./DailyActivity";
 import {
   money,
   number,
@@ -145,7 +146,7 @@ export default function App() {
     null,
   );
   const [txPage, setTxPage] = useState(0);
-  const [detailTab, setDetailTab] = useState<"overview" | "transactions">(
+  const [detailTab, setDetailTab] = useState<"overview" | "transactions" | "daily">(
     "overview",
   );
   const [graph, setGraph] = useState<GraphData | null>(null);
@@ -859,9 +860,14 @@ export default function App() {
                             {transactions?.available ? transactions.total : "—"}
                           </span>
                         </button>
+                        <button role="tab" aria-selected={detailTab === "daily"}
+                          className={detailTab === "daily" ? "active" : ""}
+                          onClick={() => setDetailTab("daily")}>По дням</button>
                       </div>
                       <div className="detail-scroll">
-                        {detailTab === "overview" ? (
+                        {detailTab === "daily" && run ? (
+                          <DailyActivity key={`${run}:${detail.gid}`} run={run} gid={detail.gid} />
+                        ) : detailTab === "overview" ? (
                           <>
                             <div className="priority-card">
                               <div>

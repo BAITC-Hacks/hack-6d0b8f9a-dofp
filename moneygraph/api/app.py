@@ -90,6 +90,30 @@ def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, stat
         svc = current(run_id)
         return svc.envelope(svc.node_transactions(require_node(svc, gid), limit, offset))
 
+    @app.get('/api/v1/runs/{run_id}/nodes/{gid}/daily-activity')
+    def get_daily_activity(run_id: str, gid: str):
+        from datetime import date
+        from moneygraph.analytics.temporal import daily_activity
+        from .models import calendar_date
+        svc = current(run_id)
+        normalized = require_node(svc, gid)
+        period = svc.manifest.get('period') or {}
+        try:
+            start, end = calendar_date(period.get('start')), calendar_date(period.get('end'))
+            span = (date.fromisoformat(end) - date.fromisoformat(start)).days
+            if not 0 <= span < 3660:
+                raise ValueError('Unsupported daily window')
+        except (ValueError, TypeError):
+            raise HTTPException(422, 'Для графика нужен корректный период расчёта не более 3 660 дней.')
+        rows = svc.transactions.get(normalized, []) if svc.transactions_available else None
+        config = svc.manifest.get('identity', {}).get('config', {})
+        try:
+            result = daily_activity(svc.node(normalized), rows, period_start=start,
+                period_end=end, max_depth=config.get('max_depth', 4))
+        except ValueError as exc:
+            raise HTTPException(422, 'История переводов не согласована с периодом расчёта.') from exc
+        return svc.envelope(result)
+
     @app.get('/api/v1/runs/{run_id}/exports/{name}')
     def export(run_id: str, name: str):
         svc = current(run_id)
