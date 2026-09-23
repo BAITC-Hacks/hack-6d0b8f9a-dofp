@@ -110,4 +110,7 @@ def test_missing_key_check_is_actionable(openai_env, monkeypatch, capsys):
 def test_live_check_rejects_wrong_result(openai_env, monkeypatch, capsys):
     monkeypatch.setattr(ChatCompletionsTransport, "complete", lambda *a, **k: '{"ok":1}')
     assert main(["--live"]) == 2
-    assert "invalid_response" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "invalid_response" in captured.err
+    assert "не подтверждает ошибку ключа" in captured.err
+    assert openai_env.api_key not in captured.out + captured.err

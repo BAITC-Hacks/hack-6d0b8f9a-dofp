@@ -24,7 +24,11 @@ def server():
                                    "authorization": self.headers.get("Authorization")})
             time.sleep(state["delay"])
             try:
+                if state["headers"].get("Transfer-Encoding") == "chunked":
+                    self.protocol_version = "HTTP/1.1"
                 self.send_response(state["status"])
+                self.send_header("Connection", "close")
+                self.close_connection = True
                 for key, value in state["headers"].items():
                     self.send_header(key, value)
                 self.end_headers()
@@ -58,6 +62,37 @@ def test_local_transport_and_request_contract(config, server, monkeypatch, caplo
     assert request["authorization"] == "Bearer test-secret"
     assert "tools" not in request["body"]
     assert "test-secret" not in caplog.text
+
+
+@pytest.mark.parametrize("padding", [0, 20000])
+@pytest.mark.parametrize("framing", ["length", "chunked"])
+def test_complete_response_framing(config, server, padding, framing):
+    state, url = server
+    state["body"] += b" " * padding
+    if framing == "length":
+        state["headers"]["Content-Length"] = str(len(state["body"]))
+    else:
+        state["headers"]["Transfer-Encoding"] = "chunked"
+        state["body"] = chunk_frame(state["body"]) + b"0\r\n\r\n"
+    assert call(replace(config, base_url=url)) == '{"ok":true}'
+    assert len(state["calls"]) == 1
+
+
+def chunk_frame(body):
+    return f"{len(body):x}\r\n".encode() + body + b"\r\n"
+
+
+@pytest.mark.parametrize("framing", ["length", "chunked"])
+def test_incomplete_http_body_is_rejected_even_with_valid_json(config, server, framing):
+    state, url = server
+    if framing == "length":
+        state["headers"]["Content-Length"] = str(len(state["body"]) + 1)
+    else:
+        state["headers"]["Transfer-Encoding"] = "chunked"
+        state["body"] = chunk_frame(state["body"])  # Missing terminating chunk.
+    with pytest.raises(AIUnavailable) as error:
+        call(replace(config, base_url=url))
+    assert error.value.code == "incomplete_response"
 
 
 @pytest.mark.parametrize("kind", ["redirect", "rate", "error", "oversize", "invalid", "truncated", "refusal"])

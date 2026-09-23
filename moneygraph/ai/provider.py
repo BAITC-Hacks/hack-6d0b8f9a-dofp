@@ -4,6 +4,7 @@ No SDK, network retries, redirects, proxy inheritance, tools, or prompt logging.
 The owner must run it in a worker thread, not on FastAPI's event loop.
 """
 import json
+from http.client import HTTPException
 import socket
 import time
 from typing import Protocol
@@ -87,7 +88,10 @@ class ChatCompletionsTransport:
                 if size is not None and int(size) > limit:
                     raise AIUnavailable("response_too_large")
                 chunks, count = [], 0
-                while True:
+                # read1() closes fp after consuming Content-Length bytes. Stop
+                # before touching that socket again, even if the last read was
+                # nonempty. Chunked/EOF-delimited responses close on their own.
+                while not response.isclosed():
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise AIUnavailable("timeout")
@@ -101,6 +105,8 @@ class ChatCompletionsTransport:
                     count += len(chunk)
                     if count > limit:
                         raise AIUnavailable("response_too_large")
+                if response.length not in (None, 0):
+                    raise AIUnavailable("incomplete_response")
                 result = strict_json(b"".join(chunks))
             choices = result["choices"]
             if len(choices) != 1 or choices[0]["finish_reason"] != "stop":
@@ -123,5 +129,7 @@ class ChatCompletionsTransport:
             raise AIUnavailable(code) from None
         except URLError as error:
             raise AIUnavailable("timeout" if isinstance(error.reason, TimeoutError) else "provider_unavailable") from None
+        except HTTPException:
+            raise AIUnavailable("incomplete_response") from None
         except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError, RecursionError):
             raise AIUnavailable("invalid_response") from None

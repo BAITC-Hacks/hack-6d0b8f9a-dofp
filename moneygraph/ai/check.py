@@ -8,6 +8,19 @@ from .errors import AIUnavailable
 from .provider import ChatCompletionsTransport, strict_json
 
 
+_ERROR_HINTS = {
+    "missing_api_key": "Ключ не задан в окружении этого терминала.",
+    "authentication_failed": "Сервис отклонил ключ. Проверьте его в API-кабинете.",
+    "access_denied": "Сервис запретил доступ для этого запроса.",
+    "model_or_endpoint_unavailable": "Проверьте доступность настроенной модели и адрес сервиса.",
+    "rate_limited": "Проверьте квоту, баланс API и лимиты запросов.",
+    "timeout": "Сервис не ответил за отведённое время.",
+    "provider_unavailable": "Не удалось установить соединение с сервисом.",
+    "incomplete_response": "Ответ сервиса оборвался или не был завершён.",
+    "invalid_response": "Ответ не прошёл проверку формата. Это не подтверждает ошибку ключа.",
+}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true", help="Send one small synthetic API request; uses API credits")
@@ -31,6 +44,8 @@ def main(argv=None) -> int:
         return 0
     except AIUnavailable as error:
         print(f"AI: {error.code}. Ключ и финансовые данные не выводятся.", file=sys.stderr)
+        if hint := _ERROR_HINTS.get(error.code):
+            print(hint, file=sys.stderr)
         return 2
     except (ValueError, TypeError, RecursionError):
         print("AI: invalid_response.", file=sys.stderr)
