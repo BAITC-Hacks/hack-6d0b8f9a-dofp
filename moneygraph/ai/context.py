@@ -159,6 +159,7 @@ class SnapshotContextBuilder:
             if graph.get("directed") is not True or graph.get("currency") != "KZT" or graph.get("scale") != 2:
                 raise InvalidContext("Unexpected graph units")
             self.run_id = manifest["run_id"]
+            self.artifact_hashes = dict(manifest["artifacts"])
             self._config = manifest["identity"]["config"]
             self._nodes = self._index(graph["nodes"], lambda n: str(n["gid"]))
             records = [json.loads(line) for line in blobs["explanations.jsonl"].splitlines() if line.strip()]

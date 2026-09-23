@@ -43,6 +43,7 @@ import { DailyActivity } from "./DailyActivity";
 import { PathView } from "./PathView";
 import { InvestigationIntro } from "./InvestigationIntro";
 import { ReviewEditor } from "./ReviewEditor";
+import { AIAssistant } from "./AIAssistant";
 import {
   money,
   number,
@@ -153,7 +154,7 @@ export default function App() {
     null,
   );
   const [txPage, setTxPage] = useState(0);
-  const [detailTab, setDetailTab] = useState<"overview" | "transactions" | "daily">(
+  const [detailTab, setDetailTab] = useState<"overview" | "transactions" | "daily" | "ai">(
     "overview",
   );
   const [graph, setGraph] = useState<GraphData | null>(null);
@@ -783,9 +784,17 @@ export default function App() {
                         <button role="tab" aria-selected={detailTab === "daily"}
                           className={detailTab === "daily" ? "active" : ""}
                           onClick={() => setDetailTab("daily")}>По дням</button>
+                        {summary.features?.ai_assistant && <button role="tab" aria-selected={detailTab === "ai"}
+                          className={detailTab === "ai" ? "active" : ""}
+                          onClick={() => setDetailTab("ai")}>AI-помощник</button>}
                       </div>
                       <div className="detail-scroll" key={detailTab}>
-                        {detailTab === "daily" && run ? (
+                        {detailTab === "ai" && run ? (
+                          <AIAssistant key={`${run}:${detail.gid}`} run={run} gid={detail.gid}
+                            onTransactions={() => { setTxPage(0); setDetailTab("transactions"); }}
+                            onPath={() => openPath(0)}
+                            onCommunity={() => { setCluster(String(detail.cluster_id)); setFocus(false); setPage(0); }} />
+                        ) : detailTab === "daily" && run ? (
                           <DailyActivity key={`${run}:${detail.gid}`} run={run} gid={detail.gid} />
                         ) : detailTab === "overview" ? (
                           <>

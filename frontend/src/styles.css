@@ -2274,3 +2274,20 @@ h1 {
 .review-editor textarea, .review-editor select { font: inherit; border: 1px solid #b6ccbe; border-radius: 4px; padding: 8px; background: white; color: #294d3a; resize: vertical; }
 .review-editor button { margin: 10px 5px 0 0; }
 .review-editor [role="alert"] { color: #953d26; }
+.ai-assistant { padding: 18px; font-size: 13px; line-height: 1.65; }
+.ai-assistant h3 { font-size: 17px; margin: 10px 0; }
+.ai-assistant p { margin: 10px 0; overflow-wrap: anywhere; }
+.ai-preview { color: #69510d; background: #fff4d4; padding: 4px 8px; border-radius: 5px; font-size: 11px; }
+.ai-destination, .ai-review { background: #edf4ef; padding: 10px; border-radius: 6px; }
+.ai-section { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 16px; }
+.ai-section h4 { font-size: 14px; margin: 0; }
+.ai-section ul { padding: 0; list-style: none; }
+.ai-section li { margin-bottom: 18px; }
+.ai-citations { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; }
+.ai-citation { border: 1px solid #adc7b7; color: #205943; background: #f4f8f5; padding: 3px 8px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+.ai-citation:focus-visible { outline: 2px solid #205943; }
+.ai-fact { padding: 12px; border: 2px solid #83ab92; background: #f4f8f5; border-radius: 6px; margin: 14px 0; }
+.ai-fact pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 8px 0; }
+.ai-fact small { display: block; overflow-wrap: anywhere; }
+.ai-error { border-left: 3px solid #a56b2d; padding: 4px 10px; background: #fff8ed; margin-top: 12px; }
+.ai-section small { color: #6b7d74; }

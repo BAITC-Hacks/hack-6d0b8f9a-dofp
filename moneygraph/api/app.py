@@ -11,6 +11,7 @@ from .service import EXPORT_COLUMNS, QueryService
 from .imports import ImportManager, import_router
 from .excel import workbook_bytes
 from .reviews import review_router
+from .ai import ai_router, ai_ui_enabled
 
 
 def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, static_dir: str | Path | None = None, import_dir: str | Path | None = None, review_path: str | Path | None = None) -> FastAPI:
@@ -56,6 +57,7 @@ def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, stat
         return normalized
 
     app.include_router(review_router(review_path or Path.cwd() / 'out' / 'reviews.sqlite3', current, require_node))
+    app.include_router(ai_router(current, require_node))
 
     @app.get('/health')
     def health():
@@ -65,7 +67,7 @@ def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, stat
     @app.get('/api/v1/runs/current')
     def get_current():
         svc = current()
-        return svc.envelope(svc.summary())
+        return svc.envelope({**svc.summary(), 'features': {'ai_assistant': ai_ui_enabled()}})
 
     @app.get('/api/v1/runs/{run_id}/nodes')
     def list_nodes(run_id: str, role: Role | None = None, cluster_id: Annotated[int | None, Query(ge=0)] = None, seed_only: bool = False, q: Annotated[str | None, Query(max_length=20)] = None, limit: Annotated[int, Query(ge=1, le=500)] = 50, offset: Annotated[int, Query(ge=0)] = 0, min_seed_reach: Annotated[int | None, Query(ge=2)] = None):

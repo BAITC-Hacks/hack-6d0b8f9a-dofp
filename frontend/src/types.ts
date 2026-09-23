@@ -63,6 +63,7 @@ export interface Cluster {
 }
 export interface Summary {
   run_id: string;
+  features?: { ai_assistant?: boolean };
   demo?: boolean;
   rules_version?: string;
   period?: { start: string; end: string };

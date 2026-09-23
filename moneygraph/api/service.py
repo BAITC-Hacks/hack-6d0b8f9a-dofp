@@ -149,10 +149,14 @@ def load_directory(path: Path, data_dir: Path | None = None) -> dict:
 class QueryService:
     def __init__(self, snapshot: Mapping | str | Path | Any, data_dir: Path | None = None):
         locator_run = None
+        self.snapshot_directory = None
         if is_dataclass(snapshot) and hasattr(snapshot, 'directory') and hasattr(snapshot, 'run_id'):
             locator_run = snapshot.run_id
+            self.snapshot_directory = Path(snapshot.directory).resolve()
             payload = load_directory(Path(snapshot.directory), data_dir)
         elif isinstance(snapshot, (str, Path)):
+            if Path(snapshot).is_dir():
+                self.snapshot_directory = Path(snapshot).resolve()
             payload = load_directory(Path(snapshot), data_dir)
         elif hasattr(snapshot, 'model_dump'):
             payload = snapshot.model_dump(mode='python')
