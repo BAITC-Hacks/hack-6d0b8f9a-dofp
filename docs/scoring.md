@@ -11,7 +11,8 @@
 - `moneygraph/analytics/explanations.py`: короткие числовые объяснения.
 - `tests/scoring/`: проверки поведения и проверка готового снимка признаков.
 
-Граф, API, общие contracts/config/pipeline, корневой README и зависимости не изменены.
+Графовые алгоритмы и API не изменены. По последующему назначению добавлен общий
+пакетный запуск, экспорт и снимок: см. [pipeline.md](pipeline.md).
 Namespace-пакеты импортируются из корня репозитория без изменения общих `__init__.py`.
 Модуль работает на стандартной библиотеке Python 3.12. Никаких сетевых запросов, LLM,
 внешних данных, обучения или зашитых gid. Этот модуль не выпускает `clusters.csv`,
@@ -62,7 +63,7 @@ explanations = [node.explanation_record() for node in scored]
 `csv_record` выдаёт ровно gid, role, role_score, cluster_id, priority_score, evidence.
 `top_records` выдаёт rank, gid, role, priority_score, why. Лимит >=20;
 на маленькой синтетической выборке выдаёт все доступные узлы. Повторные gid запрещены.
-Запись CSV и публикация снимка принадлежат владельцу общего пайплайна.
+Запись CSV и публикация снимка выполняются отдельно, в `moneygraph.pipeline`.
 `explanation_record` JSON-совместим: даты ISO, gid и деньги строками,
 currency=KZT, scale=2, полная конфигурация policy, версия правил, все кандидаты,
 проверенные условия, нормированные факторы, потолки уверенности и ограничения.
@@ -175,19 +176,11 @@ Production-код scoring не потребовал исправлений.
 
 Проверенные версии: граф A `3651a714`, scoring `roles-v1.2` (код `0763d79`).
 Используются load_dataset, build_graph, detect_communities и compute_features
-из опубликованной ветки коллеги. Графовый код не копируется в нашу ветку.
+из опубликованной ветки коллеги. В текущую ветку граф включён merge без правок
+авторских файлов; отдельный checkout для запуска больше не требуется.
 Нужны зависимости A: pandas, PyArrow, NetworkX и SciPy.
 
-Из корня нашего checkout, если рядом есть отдельная папка checkout графа
-`moneygraph-data-graph` с проверенной версией:
-
-```bash
-MONEYGRAPH_DATA_DIR=/absolute/path/to/data PYTHONPATH=.:../moneygraph-data-graph python3 -B -m unittest discover -s tests/scoring -v
-```
-
-Путь до data нужно заменить на свой. Папки обеих частей содержат namespace-пакет
-moneygraph без общих __init__.py. Когда капитан объединит модули в одном checkout,
-дополнительный PYTHONPATH не нужен:
+Из корня нашей ветки после установки зависимостей (путь до data замените на свой):
 
 ```bash
 MONEYGRAPH_DATA_DIR=/absolute/path/to/data python3 -B -m unittest discover -s tests/scoring -v
@@ -201,6 +194,7 @@ MONEYGRAPH_DATA_DIR=/absolute/path/to/data python3 -B -m unittest discover -s te
 
 Фактический результат: 28 тестов прошли, 2 248 узлов, 105 кластеров; load→scored
 0.827 с и отдельно scoring 0.104 с. Среда: Python 3.12.14, pandas 2.2.3,
-PyArrow 25.0.1, NetworkX 3.7, SciPy 1.17.0. Общий запуск со snapshots, полным
-комплектом CSV и API пока не проверен. Числа ролей не используются как константы
+PyArrow 25.0.1, NetworkX 3.7, SciPy 1.17.0. Это прежний замер A → scoring;
+теперь отдельно проверен общий CLI с CSV и снимком, см. README. API ещё не подключён.
+Числа ролей не используются как константы
 в тестах — проверяются условия, полнота и согласованность результатов.

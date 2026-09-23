@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moneygraph"
+version = "0.1.0"
+description = "Explainable transaction graph analysis for HackAlem AI"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy==2.3.5",
+    "pandas==2.2.3",
+    "pyarrow==25.0.1",
+    "networkx==3.7",
+    "scipy==1.17.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["moneygraph*"]
+namespaces = true
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
