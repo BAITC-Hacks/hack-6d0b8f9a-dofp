@@ -40,6 +40,7 @@ import { request, errorMessage, runPath, ApiError } from "./api";
 import { NetworkGraph } from "./NetworkGraph";
 import { ImportData } from "./ImportData";
 import { DailyActivity } from "./DailyActivity";
+import { PathView } from "./PathView";
 import {
   money,
   number,
@@ -93,7 +94,9 @@ function Modal({
   title,
   children,
   onClose,
+  wide = false,
 }: {
+  wide?: boolean;
   title: string;
   children: ReactNode;
   onClose: () => void;
@@ -105,7 +108,7 @@ function Modal({
   return (
     <dialog
       ref={ref}
-      className="modal"
+      className={`modal ${wide ? "path-modal" : ""}`}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -159,11 +162,20 @@ export default function App() {
   const [searchBusy, setSearchBusy] = useState(false);
   const searchRequest = useRef<AbortController | null>(null);
   const [notice, setNotice] = useState("");
+  const [pathTarget, setPathTarget] = useState<{run: string; gid: string; index: number} | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [modal, setModal] = useState<
-    "help" | "clusters" | "exports" | "import" | null
+    "help" | "clusters" | "exports" | "import" | "path" | null
   >(null);
   const run = summary?.run_id;
+  const openPath = (index: number) => {
+    if (!run || !selected) return;
+    setPathTarget({ run, gid: selected, index });
+    setModal("path");
+  };
+  useEffect(() => {
+    if (modal === "path" && (pathTarget?.run !== run || pathTarget?.gid !== selected)) setModal(null);
+  }, [run, selected, modal, pathTarget]);
   const graphFocus = focus ? selected : null;
   const selectNode = useCallback((gid: string) => {
     setSelected(gid);
@@ -972,30 +984,26 @@ export default function App() {
                                 ))}
                               </div>
                             )}
-                            {!!detail.paths.length && (
-                              <div className="path-section">
-                                <h4>Как к нему ведут исходные клиенты</h4>
-                                {detail.paths.slice(0, 3).map((path, index) => (
-                                  <div className="path" key={index}>
-                                    {path.map((gid, i) => (
-                                      <span key={`${gid}-${i}`}>
-                                        <button onClick={() => selectNode(gid)}>
-                                          {gid}
-                                        </button>
-                                        {i < path.length - 1 && (
-                                          <ArrowRight size={11} />
-                                        )}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ))}
-                                <p className="fine-print">
-                                  Это примеры цепочек переводов, а не
-                                  доказательство того, что по всей цепочке шли
-                                  одни и те же деньги.
-                                </p>
-                              </div>
-                            )}
+                            <div className="path-section">
+                              <h4>Как к нему ведут исходные клиенты</h4>
+                              {detail.paths.length ? detail.paths.map((path, index) => (
+                                <div className="path-example" key={index}>
+                                  <div className="path">{path.map((gid, i) => (
+                                    <span key={`${gid}-${i}`}><button onClick={() => selectNode(gid)}>{gid}</button>
+                                      {i < path.length - 1 && <ArrowRight size={11} />}
+                                    </span>
+                                  ))}</div>
+                                  <button className="button small" onClick={() => openPath(index)}
+                                    aria-label={`Показать цепочку на графе: пример ${index + 1}`}>
+                                    Показать цепочку на графе
+                                  </button>
+                                </div>
+                              )) : <>
+                                <p className="fine-print">{detail.paths_available === false ? "Данные о цепочках не подключены." : "Сохранённых примеров цепочек нет."}</p>
+                                <button className="button small" onClick={() => openPath(0)}>Показать клиента на графе</button>
+                              </>}
+                              <p className="fine-print">Это примеры связей, а не доказательство движения одних и тех же денег по всей цепочке.</p>
+                            </div>
                             <details className="technical-details">
                               <summary>Подробности расчёта</summary>
                             {!!detail.alternatives?.length && (
@@ -1173,9 +1181,11 @@ export default function App() {
           </button>
         </div>
       )}
-      {modal && (
+      {modal && (modal !== "path" || (pathTarget?.run === run && pathTarget?.gid === selected)) && (
         <Modal
+          wide={modal === "path"}
           title={
+            modal === "path" ? "Полная цепочка переводов" :
             modal === "help"
               ? "Как читать результаты"
               : modal === "clusters"
@@ -1188,7 +1198,10 @@ export default function App() {
             if (!importBusy) setModal(null);
           }}
         >
-          {modal === "import" ? (
+          {modal === "path" && pathTarget ? (
+            <PathView key={`${pathTarget.run}:${pathTarget.gid}:${pathTarget.index}`} run={pathTarget.run} gid={pathTarget.gid} initialIndex={pathTarget.index}
+              onClose={() => setModal(null)} onSelect={(gid) => { setModal(null); selectNode(gid); }} />
+          ) : modal === "import" ? (
             <ImportData
               period={summary?.period}
               onBusy={setImportBusy}

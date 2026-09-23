@@ -20,6 +20,8 @@ export interface NodeData {
   warnings: string[];
   contributions: { key: string; label: string; value: number }[];
   paths: string[][];
+  paths_available?: boolean;
+  step_index?: number | null;
   rule_id: string | null;
   alternatives?: { role: Role; support: number; rule_id?: string }[];
   rule_details?: {
@@ -33,6 +35,7 @@ export interface Edge {
   n_tx: number;
 }
 export interface GraphData {
+  view_mode?: "seed_path";
   nodes: NodeData[];
   edges: Edge[];
   total_nodes: number;

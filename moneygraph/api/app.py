@@ -114,6 +114,17 @@ def create_app(snapshot: Any = None, *, data_dir: str | Path | None = None, stat
             raise HTTPException(422, 'История переводов не согласована с периодом расчёта.') from exc
         return svc.envelope(result)
 
+    @app.get('/api/v1/runs/{run_id}/nodes/{gid}/path-view')
+    def get_path_view(run_id: str, gid: str, path_index: Annotated[int, Query(ge=0)] = 0):
+        svc = current(run_id)
+        normalized = require_node(svc, gid)
+        try:
+            return svc.envelope(svc.path_view(normalized, path_index))
+        except IndexError as exc:
+            raise HTTPException(422, 'Сохранённого примера с таким номером нет.') from exc
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(409, 'Не удалось подтвердить целостность сохранённой цепочки. Частичный маршрут не показан.') from exc
+
     @app.get('/api/v1/runs/{run_id}/exports/{name}')
     def export(run_id: str, name: str):
         svc = current(run_id)

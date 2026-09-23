@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import cytoscape from "cytoscape";
 import { Crosshair, Minus, Plus } from "lucide-react";
-import { roleInfo, type GraphData } from "./types";
+import { roleInfo, money, type GraphData } from "./types";
 
 const clusterColors = [
   "#168b6b",
@@ -22,19 +22,22 @@ export function NetworkGraph({
   onSelect: (gid: string) => void;
   colorMode: "role" | "cluster";
 }) {
+  const [edgeTip, setEdgeTip] = useState("");
+  const isPath = data.view_mode === "seed_path";
   const container = useRef<HTMLDivElement>(null);
   const core = useRef<cytoscape.Core | null>(null);
   const callback = useRef(onSelect);
   callback.current = onSelect;
   useEffect(() => {
     if (!container.current) return;
+    setEdgeTip("");
     const graph = cytoscape({
       container: container.current,
       elements: [
         ...data.nodes.map((node, index) => ({
           data: {
             id: node.gid,
-            label: node.gid,
+            label: isPath ? `${node.step_index === null ? "Клиент" : `Шаг ${node.step_index}`}\n${node.gid}` : node.gid,
             color:
               colorMode === "role"
                 ? roleInfo[node.role].color
@@ -44,13 +47,14 @@ export function NetworkGraph({
             boundary: node.warnings.includes("depth_boundary") ? 1 : 0,
           },
           position: {
-            x: (node.depth ?? index % 5) * 125 + (index % 2) * 25,
-            y: node.cluster_id * 130 + (index % 4) * 45,
+            x: isPath ? (node.step_index ?? 0) * 220 : (node.depth ?? index % 5) * 125 + (index % 2) * 25,
+            y: isPath ? 0 : node.cluster_id * 130 + (index % 4) * 45,
           },
         })),
         ...data.edges.map((edge) => ({
           data: {
             id: `${edge.src}->${edge.dst}`,
+            tip: `${edge.src} → ${edge.dst}: ${money(edge.sum_minor)} за период · операций: ${edge.n_tx}`,
             source: edge.src,
             target: edge.dst,
             width: Math.min(
@@ -71,6 +75,7 @@ export function NetworkGraph({
             color: "#536a60",
             "font-size": 10,
             "font-family": "Segoe UI, sans-serif",
+            "text-wrap": "wrap",
             "text-valign": "bottom",
             "text-margin-y": 8,
             "border-width": 3,
@@ -99,8 +104,8 @@ export function NetworkGraph({
           selector: "edge",
           style: {
             width: "data(width)",
-            "line-color": "#c2d1c9",
-            "target-arrow-color": "#b4c5bb",
+            "line-color": isPath ? "#419176" : "#c2d1c9",
+            "target-arrow-color": isPath ? "#419176" : "#b4c5bb",
             "target-arrow-shape": "triangle",
             "curve-style": "bezier",
             "arrow-scale": 0.8,
@@ -128,7 +133,7 @@ export function NetworkGraph({
           },
         },
       ],
-      layout: {
+      layout: isPath ? { name: "preset", fit: true, padding: 55 } : {
         name: "cose",
         animate: false,
         randomize: false,
@@ -145,8 +150,11 @@ export function NetworkGraph({
     });
     core.current = graph;
     graph.on("tap", "node", (event) => callback.current(event.target.id()));
+    graph.on("mouseover tap", "edge", (event) => setEdgeTip(event.target.data("tip")));
+    graph.on("mouseout", "edge", () => setEdgeTip(""));
     const observer = new ResizeObserver(() => {
       graph.resize();
+      if (isPath) graph.fit(undefined, 55);
     });
     observer.observe(container.current);
     return () => {
@@ -162,6 +170,10 @@ export function NetworkGraph({
     if (!selected) return;
     const target = graph.getElementById(selected);
     if (!target.length) return;
+    if (isPath) {
+      target.addClass("focus");
+      return;
+    }
     const neighbors = target.closedNeighborhood();
     graph.elements().difference(neighbors).addClass("faded");
     target.addClass("focus");
@@ -183,6 +195,7 @@ export function NetworkGraph({
         role="img"
         aria-label={`Граф: ${data.nodes.length} узлов, ${data.edges.length} направленных связей. Для выбора узла также доступна очередь проверок.`}
       />
+      {edgeTip && <div className="edge-tooltip" role="tooltip">{edgeTip}</div>}
       {!data.nodes.length && (
         <div className="graph-empty">Нет узлов для выбранного фильтра</div>
       )}

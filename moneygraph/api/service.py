@@ -176,6 +176,7 @@ class QueryService:
         self.warnings = list(self.manifest.get('warnings', []))
         self.quality = payload.get('quality', {})
         self.nodes: dict[str, Node] = {}
+        self.paths_available: dict[str, bool] = {}
         for original in payload.get('nodes', []):
             row = normalize_node_record(original)
             metrics = dict(row.get('metrics') or {})
@@ -190,6 +191,7 @@ class QueryService:
                     metrics[minor_key] = minor_units(row[f'{direction}_kzt'])
             row['metrics'] = clean_metrics(metrics)
             node = Node.model_validate(row)
+            self.paths_available[node.gid] = row.get('paths') is not None
             if node.gid in self.nodes:
                 raise ValueError(f'Duplicate gid: {node.gid}')
             if node.depth == 4 and 'depth_boundary' not in node.warnings:
@@ -215,6 +217,13 @@ class QueryService:
             self.edges.append(edge)
             self.neighbors[edge.src].add(edge.dst)
             self.neighbors[edge.dst].add(edge.src)
+        import networkx as nx
+        self.path_max_depth = self.manifest.get('identity', {}).get('config', {}).get('max_depth', 4)
+        self.path_graph = nx.DiGraph(max_depth=self.path_max_depth)
+        for node in self.nodes.values():
+            self.path_graph.add_node(int(node.gid), depth=node.depth, is_seed=node.is_seed)
+        for edge in self.edges:
+            self.path_graph.add_edge(int(edge.src), int(edge.dst), sum_minor=int(edge.sum_minor), n_tx=edge.n_tx)
         self.ranked = sorted(self.nodes.values(), key=lambda node: (-node.priority_score, int(node.gid)))
         self.rank = {node.gid: index + 1 for index, node in enumerate(self.ranked)}
         self.clusters = []
@@ -323,7 +332,14 @@ class QueryService:
 
     def node(self, gid: str) -> dict:
         row = self.nodes[gid].model_dump()
-        return {**row, 'rank': self.rank[gid], 'explanation': explain_node(self.nodes[gid])}
+        return {**row, 'rank': self.rank[gid], 'explanation': explain_node(self.nodes[gid]), 'paths_available': self.paths_available[gid]}
+
+    def path_view(self, gid: str, path_index: int) -> dict:
+        from moneygraph.analytics.graph import seed_path_view
+        paths = self.nodes[gid].paths if self.paths_available[gid] else None
+        view = seed_path_view(self.path_graph, gid, paths, path_index=path_index, max_hops=self.path_max_depth)
+        view['nodes'] = [{**self.node(n['gid']), 'step_index': n['step_index']} for n in view['nodes']]
+        return {**view, 'hops': len(view['edges'])}
 
     def list_nodes(self, role=None, cluster_id=None, seed_only=False, q=None, limit=50, offset=0) -> dict:
         rows = [node for node in self.ranked if (not role or node.role == role) and (cluster_id is None or node.cluster_id == cluster_id) and (not seed_only or node.is_seed) and (not q or q in node.gid)]
